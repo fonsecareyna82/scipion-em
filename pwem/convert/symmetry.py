@@ -132,7 +132,8 @@ def _invertMatrix(tf):
     tf = np.array(tf)
     r = tf[:, :3]
     t = tf[:, 3]
-    tfinv = np.zeros((3, 4), np.float)
+    #tfinv = np.zeros((3, 4), np.float)
+    tfinv = np.zeros((3, 4), float)
     rinv = tfinv[:, :3]
     tinv = tfinv[:, 3]
     rinv[:, :] = matrix_inverse(r)
