@@ -1014,7 +1014,7 @@ class Sequence(EMObject):
     """
 
     def __init__(self, name=None, sequence=None,
-                 alphabet=None, isAminoacids=True, id=None, description=None,
+                 alphabet=None, isAminoacids=True, id=None, description=None, fileName=None,
                  **kwargs):
         EMObject.__init__(self, **kwargs)
         # sequence Id, usually from a database. E.g: P12345
@@ -1030,6 +1030,13 @@ class Sequence(EMObject):
         # alphabet is used to describe de convention followed to
         # store the _sequence. We follow biopython criteria
         self._alphabet = Integer(alphabet)
+        self._fileName = String(fileName)
+
+    def getFileName(self):
+        return self._fileName.get()
+
+    def setFileName(self, name):
+        self._fileName.set(name)
 
     def getId(self):
         return self._id.get()
