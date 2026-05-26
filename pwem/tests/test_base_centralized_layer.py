@@ -1,1059 +1,204 @@
-from typing import Optional, List, Union, Tuple
+# **************************************************************************
+# *
+# * Authors:    Scipion Team (scipion@cnb.csic.es)
+# *
+# * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
+# *
+# * This program is free software; you can redistribute it and/or modify
+# * it under the terms of the GNU General Public License as published by
+# * the Free Software Foundation; either version 3 of the License, or
+# * (at your option) any later version.
+# *
+# * This program is distributed in the hope that it will be useful,
+# * but WITHOUT ANY WARRANTY; without even the implied warranty of
+# * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# * GNU General Public License for more details.
+# *
+# * You should have received a copy of the GNU General Public License
+# * along with this program; if not, write to the Free Software
+# * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
+# * 02111-1307  USA
+# *
+# *  All comments concerning this program package may be sent to the
+# *  e-mail address 'scipion@cnb.csic.es'
+# *
+# **************************************************************************
+"""
+Centralized test layer for pwem base data objects.
+
+Provides reusable test methods for validating Scipion EM data objects
+and their corresponding sets, meant to be inherited by protocol-specific
+test classes.
+
+Methods are organized into three sections:
+
+    1. AUXILIARY METHODS -- shared validation utilities.
+    2. INDIVIDUAL OBJECT CHECKS -- per-type validation of a single object.
+    3. SET CHECKS -- set-level validation + iteration over items.
+
+Design rule
+-----------
+Each method tests **one level** of the hierarchy:
+
+- Set methods call ``checkSetGeneralProps`` for aggregate properties (size,
+  sampling rate, stream state, persistence) and then iterate over items
+  calling the appropriate **individual** check.
+- Sets **never** delegate to another set check (e.g. ``checkSetOfParticles``
+  does **not** call ``checkImageSet``).
+- Individual object checks **do** delegate to parent checks where the IS-A
+  relation holds (e.g. ``checkParticle`` calls ``checkImage``).
+
+This avoids redundant checking of the same properties at multiple levels.
+"""
 from os.path import exists
+from typing import List, Optional, Tuple, Union
 
 import mrcfile
 import numpy as np
-import os
 
 from pyworkflow.tests import BaseTest
-from pwem.objects import (Volume, Micrograph, Particle, Image, SetOfVolumes, SetOfImages, Acquisition, Movie,
-                          Transform, SetOfParticles, Coordinate, SetOfCoordinates, CTFModel, AtomStruct,
-                          SetOfClasses, SetOfAtomStructs, MovieAlignment, FramesRange, SetOfMovies)
+from pwem.objects import (Acquisition, AtomStruct, CTFModel, Coordinate,
+                           Image, Mask, Micrograph, Movie, MovieAlignment,
+                           Particle, SetOfClasses, SetOfCoordinates, SetOfCTF,
+                           SetOfImages, SetOfMicrographs, SetOfMovies,
+                           SetOfParticles, SetOfVolumes, Transform, Volume,
+                           VolumeMask)
 
 
 class TestBaseCentralizedLayer(BaseTest):
-    """
-    
-    """
 
-    # ==========================================
-    # 1. MÉTODOS DE CLASES PRINCIPALES
-    # ==========================================
+    # =========================================================================
+    # 1. AUXILIARY METHODS
+    # =========================================================================
 
-    def checkImage(self,
-                   img: Image,
-                   imageId: Optional[int] = None,
-                   imageName: Optional[str] = None,
-                   samplingRate: Optional[float] = None,
-                   voltage: Optional[float] = None,
-                   sphericalAberration: Optional[float] = None,
-                   amplitudeContrast: Optional[float] = None,
-                   magnification: Optional[float] = None,
-                   doseInitial: Optional[float] = None,
-                   dosePerFrame: Optional[float] = None,
-                   dim: Optional[Tuple[int, int, int]] = None,
-                   transformShifts: Optional[Tuple[float, float, float]] = None,
-                   origin: Optional[Tuple[float, float, float]] = None,
-                   hasCTF: bool = False,
-                   sRateAngsPixTol: float = 0.01) -> None:
-        """
-        Validate that an image has all expected parameters.
-
-        :param img: Image object to validate
-        :param imageId: Expected image ID
-        :param imageName: Expected image filename
-        :param samplingRate: Expected sampling rate (Å/pix)
-        :param voltage: Expected electron microscope voltage (kV)
-        :param sphericalAberration: Expected spherical aberration (mm)
-        :param amplitudeContrast: Expected amplitude contrast value
-        :param magnification: Expected microscope magnification
-        :param doseInitial: Expected initial dose (e⁻/Å²)
-        :param dosePerFrame: Expected dose per frame (e⁻/Å²)
-        :param dim: Expected image dimensions (x, y, z)
-        :param transformShifts: Expected transformation shifts (x, y, z)
-        :param origin: Expected origin shifts (x, y, z)
-        :param hasCTF: Whether image should have CTF model
-        :param sRateAngsPixTol: Tolerance for sampling rate comparison (Å/pix)
-        """
-        # Validate object type
-        if not isinstance(img, Image):
-            self.fail(f"Expected Image object, got {type(img)}")
-
-        # Check image ID
-        if imageId is not None:
-            print(f'---> Checking image ID = {imageId}')
-            self.assertEqual(
-                img.getObjId(),
-                imageId,
-                f"Image ID mismatch: expected {imageId}, got {img.getObjId()}"
-            )
-
-        # Check filename
-        if imageName is not None:
-            self.assertEqual(
-                os.path.basename(img.getFileName()),
-                imageName,
-                f"Image name mismatch: expected {imageName}, got {os.path.basename(img.getFileName())}"
-            )
-
-        # Validate input parameters
-        if samplingRate is not None:
-            self.assertGreater(
-                samplingRate, 0,
-                f"Sampling rate must be positive, got {samplingRate}"
-            )
-
-        if dim is not None:
-            self.assertEqual(
-                len(dim), 3,
-                f"Dimensions must have 3 elements (x, y, z), got {len(dim)}"
-            )
-            self.assertTrue(
-                all(d > 0 for d in dim),
-                f"All dimensions must be positive, got {dim}"
-            )
-
-        # Check sampling rate
-        if samplingRate is not None:
-            self.assertAlmostEqual(
-                img.getSamplingRate(),
-                samplingRate,
-                places=2,
-                msg=f"Sampling rate mismatch: expected {samplingRate}, got {img.getSamplingRate()}"
-            )
-            self.checkHeaderSRate(img, expectedSRate=samplingRate, sRateAngsPixTol=sRateAngsPixTol)
-
-        # Check acquisition parameters
-        if img.hasAcquisition():
-            acquisition = img.getAcquisition()
-            self.checkAcquisition(
-                acquisition,
-                voltage=voltage,
-                sphericalAberration=sphericalAberration,
-                amplitudeContrast=amplitudeContrast,
-                magnification=magnification,
-                doseInitial=doseInitial,
-                dosePerFrame=dosePerFrame
-            )
-
-        # Check dimensions
-        if dim is not None:
-            imgDim = img.getDim()
-            self.assertIsNotNone(
-                imgDim,
-                f"Image dimensions are None for {img.getFileName()}"
-            )
-            self.assertEqual(
-                imgDim, dim,
-                f"Dimension mismatch: expected {dim}, got {imgDim}"
-            )
-        else:
-            # Verify image has at least some dimensions
-            imgDim = img.getDim()
-            self.assertIsNotNone(
-                imgDim,
-                f"Image should have dimensions: {img.getFileName()}"
-            )
-
-        # Check transform shifts
-        if transformShifts is not None:
-            self.assertTrue(
-                img.hasTransform(),
-                "Image should have a transform but doesn't"
-            )
-            self.checkTransform(shiftObject=img.getTransform(), shifts=transformShifts)
-
-        # Check origin shifts
-        if origin is not None:
-            self.assertTrue(
-                img.hasOrigin(),
-                "Image should have an origin but doesn't"
-            )
-            self.checkTransform(shiftObject=img.getOrigin(), shifts=origin)
-
-        # Check CTF
-        if hasCTF:
-            self.assertTrue(
-                img.hasCTF(),
-                "Image should have a CTF model but doesn't"
-            )
-        else:
-            self.assertFalse(
-                img.hasCTF(),
-                "Image should not have a CTF model but does"
-            )
-
-    def checkVolume(self,
-                    vol: Volume,
-                    expectedSRate: float = -1.,
-                    expectedBoxSize: int = -1,
-                    hasCtf: bool = False,
-                    hasHalves: bool = True,
-                    sRateAngsPixTol: float = 0.01,
-                    expectedOriginShifts: Union[List[float], None] = None) -> None:
-        """
-        Validate the main properties of a volume.
-
-        :param vol: Volume object to validate
-        :param expectedSRate: Expected sampling rate (Å/pix), -1 to skip check
-        :param expectedBoxSize: Expected box size in pixels, -1 to skip check
-        :param hasCtf: Whether volume should have CTF model
-        :param hasHalves: Whether volume should have half-maps
-        :param sRateAngsPixTol: Tolerance for sampling rate comparison (Å/pix)
-        :param expectedOriginShifts: Expected origin shifts (x, y, z)
-        """
-        # Validate object type
-        if not isinstance(vol, Volume):
-            self.fail(f"Expected Volume object, got {type(vol)}")
-
-        # Prepare dimensions if provided
-        dim = None
-        if expectedBoxSize != -1:
-            dim = (expectedBoxSize, expectedBoxSize, expectedBoxSize)
-
-        # Prepare origin if provided
-        origin = None
-        if expectedOriginShifts:
-            origin = tuple(expectedOriginShifts)
-
-        # Check shared properties using checkImage
-        self.checkImage(
-            img=vol,
-            samplingRate=expectedSRate if expectedSRate != -1 else None,
-            dim=dim,
-            hasCTF=hasCtf,
-            origin=origin
-        )
-
-        # Verify volume file exists
-        volFileName = vol.getFileName()
-        self.assertTrue(
-            exists(volFileName),
-            f"Volume {volFileName} does not exist"
-        )
-
-        # Check half-maps if required
-        if hasHalves:
-            self.assertTrue(
-                vol.hasHalfMaps(),
-                "Volume should have half-maps registered"
-            )
-            half1, half2 = vol.getHalfMaps().split(',')
-            self.assertTrue(
-                exists(half1),
-                f"Volume first half {half1} does not exist"
-            )
-            self.assertTrue(
-                exists(half2),
-                f"Volume second half {half2} does not exist"
-            )
-
-    def checkMovie(self,
-                   mov: Movie,
-                   samplingRate: float,
-                   voltage: float,
-                   moviesId: Optional[List[int]] = None,
-                   moviesNames: Optional[List[str]] = None,
-                   size: Tuple[float, float, float] = None,
-                   dim: Tuple[int, int, int] = None,
-                   framesRange: Optional[Tuple[int, int, int]] = None,
-                   numFrames: Optional[int] = None) -> None:
-        """
-        Validate a Movie object with all its properties.
-
-        :param mov: Movie object to validate
-        :param samplingRate: Expected sampling rate (Å/pix)
-        :param voltage: Expected electron microscope voltage (kV)
-        :param moviesId: List of expected movie IDs (optional)
-        :param moviesNames: List of expected movie filenames (optional)
-        :param size: Expected size dimensions (optional)
-        :param dim: Expected dimensions (x, y, z) (optional)
-        :param framesRange: Expected frames range (firstFrame, lastFrame, firstFrameIndex) (optional)
-        :param numFrames: Expected number of frames (optional)
-        """
-        # Validate object type
-        if not isinstance(mov, Movie):
-            self.fail(f"Expected Movie object, got {type(mov)}")
-
-        # Check shared image properties
-        self.checkImage(mov, samplingRate=samplingRate, voltage=voltage)
-
-        # Check size if provided
-        if size is not None:
-            self.assertEqual(
-                mov.getSize(), size,
-                f"Movie size mismatch: expected {size}, got {mov.getSize()}"
-            )
-
-        # Check sampling rate
-        self.assertAlmostEqual(
-            mov.getSamplingRate(), samplingRate,
-            msg=f"Sampling rate mismatch: expected {samplingRate}, got {mov.getSamplingRate()}"
-        )
-
-        # Check acquisition voltage
-        if mov.hasAcquisition():
-            self.assertAlmostEqual(
-                mov.getAcquisition().getVoltage(), voltage,
-                msg=f"Voltage mismatch: expected {voltage}, got {mov.getAcquisition().getVoltage()}"
-            )
-
-        # Check dimensions if provided
-        if dim is not None:
-            self.assertEqual(
-                mov.getDim(), dim,
-                f"Dimension mismatch: expected {dim}, got {mov.getDim()}"
-            )
-
-        # Verify movie has FramesRange
-        self.assertIsNotNone(
-            mov.getFramesRange(),
-            "Movie should have FramesRange"
-        )
-
-        # Check frames range details if provided
-        if framesRange is not None:
-            firstFrame, lastFrame, firstFrameIndex = framesRange
-            actualRange = mov.getFramesRange()
-            self.assertEqual(
-                actualRange.getFirstFrame(), firstFrame,
-                f"First frame mismatch: expected {firstFrame}, got {actualRange.getFirstFrame()}"
-            )
-            self.assertEqual(
-                actualRange.getLastFrame(), lastFrame,
-                f"Last frame mismatch: expected {lastFrame}, got {actualRange.getLastFrame()}"
-            )
-            self.assertEqual(
-                actualRange.getFirstFrameIndex(), firstFrameIndex,
-                f"First frame index mismatch: expected {firstFrameIndex}, got {actualRange.getFirstFrameIndex()}"
-            )
-
-        # Check number of frames if provided
-        if numFrames is not None:
-            actualNumFrames = mov.getNumberOfFrames()
-            self.assertEqual(
-                actualNumFrames, numFrames,
-                f"Frame count mismatch: expected {numFrames}, got {actualNumFrames}"
-            )
-
-    def checkMicrograph(self,
-                        mic: Micrograph,
-                        micId: Optional[int] = None,
-                        micName: Optional[str] = None,
-                        imageName: Optional[str] = None,
-                        samplingRate: Optional[float] = None,
-                        voltage: Optional[float] = None,
-                        sphericalAberration: Optional[float] = None,
-                        amplitudeContrast: Optional[float] = None,
-                        magnification: Optional[float] = None,
-                        doseInitial: Optional[float] = None,
-                        dosePerFrame: Optional[float] = None,
-                        dim: Optional[Tuple[int, int, int]] = None,
-                        transformShifts: Optional[Tuple[float, float, float]] = None,
-                        origin: Optional[Tuple[float, float, float]] = None,
-                        hasCTF: bool = False,
-                        sRateAngsPixTol: float = 0.01) -> None:
-        """
-        Validate that a micrograph has all expected parameters.
-
-        :param mic: Micrograph object to validate
-        :param micId: Expected micrograph ID
-        :param micName: Expected micrograph name
-        :param imageName: Expected image filename
-        :param samplingRate: Expected sampling rate (Å/pix)
-        :param voltage: Expected electron microscope voltage (kV)
-        :param sphericalAberration: Expected spherical aberration (mm)
-        :param amplitudeContrast: Expected amplitude contrast value
-        :param magnification: Expected microscope magnification
-        :param doseInitial: Expected initial dose (e⁻/Å²)
-        :param dosePerFrame: Expected dose per frame (e⁻/Å²)
-        :param dim: Expected image dimensions (x, y, z)
-        :param transformShifts: Expected transformation shifts (x, y, z)
-        :param origin: Expected origin shifts (x, y, z)
-        :param hasCTF: Whether micrograph should have CTF model
-        :param sRateAngsPixTol: Tolerance for sampling rate comparison (Å/pix)
-        """
-        # Validate object type
-        if not isinstance(mic, Micrograph):
-            self.fail(f"Expected Micrograph object, got {type(mic)}")
-
-        # Check inherited image properties
-        self.checkImage(
-            img=mic,
-            imageId=micId,
-            imageName=imageName,
-            samplingRate=samplingRate,
-            voltage=voltage,
-            sphericalAberration=sphericalAberration,
-            amplitudeContrast=amplitudeContrast,
-            magnification=magnification,
-            doseInitial=doseInitial,
-            dosePerFrame=dosePerFrame,
-            dim=dim,
-            transformShifts=transformShifts,
-            origin=origin,
-            hasCTF=hasCTF,
-            sRateAngsPixTol=sRateAngsPixTol
-        )
-
-        # Check micrograph-specific name
-        if micName is not None:
-            self.assertEqual(
-                mic.getMicName(), micName,
-                f"Micrograph name mismatch: expected {micName}, got {mic.getMicName()}"
-            )
-
-    def checkAtomStruct(self,
-                        atomStruct: AtomStruct,
-                        hasVolume: bool = False,
-                        pseudoatoms: bool = False) -> None:
-        """
-        Validate an AtomStruct (PDB) object.
-
-        :param atomStruct: AtomStruct object to validate
-        :param hasVolume: Whether atom structure should have associated volume
-        :param pseudoatoms: Whether atom structure uses pseudoatoms representation
-        """
-        # Validate object type
-        if not isinstance(atomStruct, AtomStruct):
-            self.fail(f"Expected AtomStruct object, got {type(atomStruct)}")
-
-        # Verify file exists
-        self.assertTrue(
-            exists(atomStruct.getFileName()),
-            f"AtomStruct file {atomStruct.getFileName()} does not exist"
-        )
-
-        # Check volume association
-        self.assertEqual(
-            atomStruct.hasVolume(), hasVolume,
-            f"HasVolume mismatch: expected {hasVolume}, got {atomStruct.hasVolume()}"
-        )
-
-        # Check pseudoatom representation
-        self.assertEqual(
-            atomStruct.getPseudoAtoms(), pseudoatoms,
-            f"Pseudoatoms mismatch: expected {pseudoatoms}, got {atomStruct.getPseudoAtoms()}"
-        )
-
-    def checkCoordinate(self,
-                        coord: Coordinate,
-                        expectedX: int,
-                        expectedY: int,
-                        expectedMicId: Optional[int] = None) -> None:
-        """
-        Validate a Coordinate object.
-
-        :param coord: Coordinate object to validate
-        :param expectedX: Expected X coordinate (pixels)
-        :param expectedY: Expected Y coordinate (pixels)
-        :param expectedMicId: Expected micrograph ID (optional)
-        """
-        # Validate object type
-        if not isinstance(coord, Coordinate):
-            self.fail(f"Expected Coordinate object, got {type(coord)}")
-
-        # Check X coordinate
-        self.assertEqual(
-            coord.getX(), expectedX,
-            f"X coordinate mismatch: expected {expectedX}, got {coord.getX()}"
-        )
-
-        # Check Y coordinate
-        self.assertEqual(
-            coord.getY(), expectedY,
-            f"Y coordinate mismatch: expected {expectedY}, got {coord.getY()}"
-        )
-
-        # Check micrograph ID if provided
-        if expectedMicId is not None:
-            self.assertEqual(
-                coord.getMicId(), expectedMicId,
-                f"Micrograph ID mismatch: expected {expectedMicId}, got {coord.getMicId()}"
-            )
-
-    def checkParticle(self,
-                      particle: Particle,
-                      classId: Optional[int] = None,
-                      micId: Optional[int] = None,
-                      particleId: Optional[int] = None,
-                      imageName: Optional[str] = None,
-                      samplingRate: Optional[float] = None,
-                      voltage: Optional[float] = None,
-                      sphericalAberration: Optional[float] = None,
-                      amplitudeContrast: Optional[float] = None,
-                      magnification: Optional[float] = None,
-                      doseInitial: Optional[float] = None,
-                      dosePerFrame: Optional[float] = None,
-                      dim: Optional[Tuple[int, int, int]] = None,
-                      transformShifts: Optional[Tuple[float, float, float]] = None,
-                      origin: Optional[Tuple[float, float, float]] = None,
-                      hasCTF: bool = False,
-                      sRateAngsPixTol: float = 0.01,
-                      corExpectedX: Optional[int] = None,
-                      corExpectedY: Optional[int] = None,
-                      corExpectedMicId: Optional[int] = None) -> None:
-        """
-        Validate a Particle object and its associated properties.
-
-        Image Properties:
-        :param particle: Particle object to validate
-        :param particleId: Expected particle ID
-        :param imageName: Expected image filename
-        :param samplingRate: Expected sampling rate (Å/pix)
-        :param voltage: Expected electron microscope voltage (kV)
-        :param sphericalAberration: Expected spherical aberration (mm)
-        :param amplitudeContrast: Expected amplitude contrast value
-        :param magnification: Expected microscope magnification
-        :param doseInitial: Expected initial dose (e⁻/Å²)
-        :param dosePerFrame: Expected dose per frame (e⁻/Å²)
-        :param dim: Expected image dimensions (x, y, z)
-        :param transformShifts: Expected transformation shifts (x, y, z)
-        :param origin: Expected origin shifts (x, y, z)
-        :param hasCTF: Whether particle should have CTF model
-        :param sRateAngsPixTol: Tolerance for sampling rate comparison (Å/pix)
-
-        Particle-specific Properties:
-        :param classId: Expected class ID
-        :param micId: Expected micrograph ID
-
-        Coordinate Properties:
-        :param corExpectedX: Expected X coordinate (pixels)
-        :param corExpectedY: Expected Y coordinate (pixels)
-        :param corExpectedMicId: Expected micrograph ID for coordinate
-        """
-        # Validate object type
-        if not isinstance(particle, Particle):
-            self.fail(f"Expected Particle object, got {type(particle)}")
-
-        # Check particle class ID
-        if classId is not None:
-            self.assertEqual(
-                particle.getClassId(), classId,
-                f"Class ID mismatch: expected {classId}, got {particle.getClassId()}"
-            )
-
-        # Check associated micrograph ID
-        if micId is not None:
-            self.assertEqual(
-                particle.getMicId(), micId,
-                f"Micrograph ID mismatch: expected {micId}, got {particle.getMicId()}"
-            )
-
-        # Check inherited image properties
-        self.checkImage(
-            img=particle,
-            imageId=particleId,
-            imageName=imageName,
-            samplingRate=samplingRate,
-            voltage=voltage,
-            sphericalAberration=sphericalAberration,
-            amplitudeContrast=amplitudeContrast,
-            magnification=magnification,
-            doseInitial=doseInitial,
-            dosePerFrame=dosePerFrame,
-            dim=dim,
-            transformShifts=transformShifts,
-            origin=origin,
-            hasCTF=hasCTF,
-            sRateAngsPixTol=sRateAngsPixTol
-        )
-
-        # Check associated coordinate
-        self.checkCoordinate(
-            coord=particle.getCoordinate(),
-            expectedX=corExpectedX,
-            expectedY=corExpectedY,
-            expectedMicId=corExpectedMicId
-        )
-
-    # ==========================================
-    # 2. MÉTODOS DE SETS DE CLASES
-    # ==========================================
-
-    def checkImageSet(self,
-                      inImageSet: SetOfImages,
-                      expectedSetSize: int,
-                      expectedSRate: float,
-                      hasCtf: bool = False,
-                      testAcqObj: Acquisition = None,
-                      sRateAngsPixTol: float = 0.01,
-                      checkItemsInSet: bool = false) -> None:
-        """
-        Validate a SetOfImages with its general properties.
-
-        More generic than checkVolumeSet().
-
-        :param inImageSet: SetOfImages object to validate
-        :param expectedSetSize: Expected number of images in set
-        :param expectedSRate: Expected sampling rate (Å/pix)
-        :param hasCtf: Whether set should have CTF information
-        :param testAcqObj: Acquisition object with expected parameters (optional)
-        :param sRateAngsPixTol: Tolerance for sampling rate comparison (Å/pix)
-        """
-        # Validate object type
-        if not isinstance(inImageSet, SetOfImages):
-            self.fail(f"Expected SetOfImages object, got {type(inImageSet)}")
-
-        # Check general set properties
-        self.checkSetGeneralProps(
-            inSet=inImageSet,
-            expectedSetSize=expectedSetSize,
-            expectedSRate=expectedSRate,
-            sRateAngsPixTol=sRateAngsPixTol
-        )
-
-        # Check CTF presence
-        self.assertEqual(
-            hasCtf, inImageSet.hasCTF(),
-            "SetOfImages CTF presence mismatch"
-        )
-
-        # Check acquisition properties if provided
-        if testAcqObj is not None and inImageSet.hasAcquisition():
-            self.checkAcquisition(
-                inImageSet.getAcquisition(),
-                voltage=testAcqObj.getVoltage(),
-                sphericalAberration=testAcqObj.getSphericalAberration(),
-                amplitudeContrast=testAcqObj.getAmplitudeContrast(),
-                magnification=testAcqObj.getMagnification()
-            )
-
-        # Validate each item in the set
-        if checkItemsInSet:
-            for image in inImageeSet:
-                imId = image.getClassId()
-                self.checkImage(image)
-
-    def checkVolumeSet(self,
-                       inVolumeSet: SetOfVolumes,
-                       expectedSetSize: int,
-                       expectedSRate: float,
-                       expectedBoxSize: int,
-                       expectedOriginShifts: Union[List[float], None] = None,
-                       hasCtf: bool = False,
-                       hasHalves: bool = False,
-                       testAcqObj: Acquisition = None,
-                       checkHeaderApix: bool = True,
-                       sRateAngsPixTol: float = 0.01) -> None:
-        """
-        Validate a SetOfVolumes with all its properties.
-
-        :param inVolumeSet: SetOfVolumes object to validate
-        :param expectedSetSize: Expected number of volumes in set
-        :param expectedSRate: Expected sampling rate (Å/pix)
-        :param expectedBoxSize: Expected volume box size (pixels)
-        :param expectedOriginShifts: Expected origin shifts (x, y, z) (optional)
-        :param hasCtf: Whether set should have CTF information
-        :param hasHalves: Whether volumes should have half-maps
-        :param testAcqObj: Acquisition object with expected parameters (optional)
-        :param checkHeaderApix: Whether to check voxel size in file headers
-        :param sRateAngsPixTol: Tolerance for sampling rate comparison (Å/pix)
-        """
-        # Validate object type
-        if not isinstance(inVolumeSet, SetOfVolumes):
-            self.fail(f"Expected SetOfVolumes object, got {type(inVolumeSet)}")
-
-        # Check general set properties
-        self.checkSetGeneralProps(
-            inSet=inVolumeSet,
-            expectedSetSize=expectedSetSize,
-            expectedSRate=expectedSRate,
-            sRateAngsPixTol=sRateAngsPixTol
-        )
-
-        # Check CTF presence
-        self.assertEqual(
-            hasCtf, inVolumeSet.hasCTF(),
-            "SetOfVolumes CTF presence mismatch"
-        )
-
-        # Check acquisition properties if provided
-        if testAcqObj is not None and inVolumeSet.hasAcquisition():
-            self.checkAcquisition(
-                inVolumeSet.getAcquisition(),
-                voltage=testAcqObj.getVoltage(),
-                sphericalAberration=testAcqObj.getSphericalAberration(),
-                amplitudeContrast=testAcqObj.getAmplitudeContrast(),
-                magnification=testAcqObj.getMagnification()
-            )
-
-        # Validate each volume in the set
-        for volume in inVolumeSet:
-            volId = volume.getClassId()
-            print(f'---> Checking volume ID = {volId}')
-            self.checkVolume(
-                vol=volume,
-                expectedSRate=expectedSRate,
-                expectedBoxSize=expectedBoxSize,
-                hasCtf=hasCtf,
-                hasHalves=hasHalves,
-                sRateAngsPixTol=sRateAngsPixTol,
-                expectedOriginShifts=expectedOriginShifts
-            )
-
-    def checkSetOfMovies(self,
-                         movieSet: SetOfMovies,
-                         expectedSetSize: int,
-                         expectedSRate: float,
-                         expectedGain: Optional[str] = None,
-                         expectedDark: Optional[str] = None,
-                         sRateAngsPixTol: float = 0.01) -> None:
-        """
-        Validate a SetOfMovies with all its properties.
-
-        :param movieSet: SetOfMovies object to validate
-        :param expectedSetSize: Expected number of movies in set
-        :param expectedSRate: Expected sampling rate (Å/pix)
-        :param expectedGain: Expected gain reference file (optional)
-        :param expectedDark: Expected dark reference file (optional)
-        :param sRateAngsPixTol: Tolerance for sampling rate comparison (Å/pix)
-        """
-        # Validate object type
-        if not isinstance(movieSet, SetOfMovies):
-            self.fail(f"Expected SetOfMovies object, got {type(movieSet)}")
-
-        # Check general image set properties
-        self.checkImageSet(
-            inImageSet=movieSet,
-            expectedSetSize=expectedSetSize,
-            expectedSRate=expectedSRate,
-            sRateAngsPixTol=sRateAngsPixTol
-        )
-
-        # Check gain reference if provided
-        if expectedGain is not None:
-            self.assertEqual(
-                movieSet.getGain(), expectedGain,
-                "Gain file mismatch"
-            )
-
-        # Check dark reference if provided
-        if expectedDark is not None:
-            self.assertEqual(
-                movieSet.getDark(), expectedDark,
-                "Dark file mismatch"
-            )
-
-        # Verify FramesRange of first movie
-        if movieSet.getSize() > 0:
-            firstMovie = movieSet.getFirstItem()
-            self.assertIsNotNone(
-                firstMovie.getFramesRange(),
-                "First movie should have FramesRange"
-            )
-
-    def checkSetOfCoordinates(self,
-                              coordSet: SetOfCoordinates,
-                              expectedSize: int,
-                              expectedBoxSize: Optional[int] = None) -> None:
-        """
-        Validate a SetOfCoordinates with all its properties.
-
-        :param coordSet: SetOfCoordinates object to validate
-        :param expectedSize: Expected number of coordinates in set
-        :param expectedBoxSize: Expected box size for picking (optional)
-        """
-        # Validate object type
-        if not isinstance(coordSet, SetOfCoordinates):
-            self.fail(f"Expected SetOfCoordinates object, got {type(coordSet)}")
-
-        # Check set size
-        self.assertSetSize(coordSet, expectedSize)
-
-        # Check box size if provided
-        if expectedBoxSize is not None:
-            self.assertEqual(
-                coordSet.getBoxSize(), expectedBoxSize,
-                f"Box size mismatch: expected {expectedBoxSize}, got {coordSet.getBoxSize()}"
-            )
-
-        # Validate each coordinate in the set
-        for coord in coordSet.iterCoordinates():
-            self.checkCoordinate(coord=coord)
-
-    def checkSetOfClasses(self,
-                          classesSet: SetOfClasses,
-                          expectedSize: int,
-                          hasRepresentatives: bool = True) -> None:
-        """
-        Validate a SetOfClasses with all its properties.
-
-        :param classesSet: SetOfClasses object to validate
-        :param expectedSize: Expected number of classes in set
-        :param hasRepresentatives: Whether classes should have representative images
-        """
-        # Validate object type
-        if not isinstance(classesSet, SetOfClasses):
-            self.fail(f"Expected SetOfClasses object, got {type(classesSet)}")
-
-        # Check set size
-        self.assertSetSize(classesSet, expectedSize)
-
-        # Check representative images presence
-        self.assertEqual(
-            classesSet.hasRepresentatives(), hasRepresentatives,
-            f"HasRepresentatives mismatch: expected {hasRepresentatives}, got {classesSet.hasRepresentatives()}"
-        )
-
-    def checkSetOfParticles(self,
-                            inParticleSet: SetOfParticles,
-                            isSubparticle: Optional[bool] = None,
-                            expectedSetSize: Optional[int] = None,
-                            expectedSRate: Optional[float] = None,
-                            hasCtf: Optional[bool] = False,
-                            testAcqObj: Optional[Acquisition] = None,
-                            sRateAngsPixTol: Optional[float] = 0.01,
-                            expectedX: Optional[int] = None,
-                            expectedY: Optional[int] = None,
-                            expectedMicId: Optional[int] = None) -> None:
-        """
-        Validate a SetOfParticles with all its properties.
-
-        :param inParticleSet: SetOfParticles object to validate
-        :param isSubparticle: Whether particles are subparticles
-        :param expectedSetSize: Expected number of particles in set
-        :param expectedSRate: Expected sampling rate (Å/pix)
-        :param hasCtf: Whether particles should have CTF information
-        :param testAcqObj: Acquisition object with expected parameters (optional)
-        :param sRateAngsPixTol: Tolerance for sampling rate comparison (Å/pix)
-        :param expectedX: Expected X coordinate for particles (pixels)
-        :param expectedY: Expected Y coordinate for particles (pixels)
-        :param expectedMicId: Expected micrograph ID for particles
-        """
-        # Validate object type
-        if not isinstance(inParticleSet, SetOfParticles):
-            self.fail(f"Expected SetOfParticles object, got {type(inParticleSet)}")
-
-        # Check subparticle flag
-        self.assertEqual(
-            inParticleSet.getIsSubparticles(), isSubparticle,
-            f"IsSubparticle mismatch: expected {isSubparticle}, got {inParticleSet.getIsSubparticles()}"
-        )
-
-        # Check general image set properties
-        self.checkImageSet(
-            inImageSet=inParticleSet,
-            expectedSetSize=expectedSetSize,
-            expectedSRate=expectedSRate,
-            hasCtf=hasCtf,
-            testAcqObj=testAcqObj,
-            sRateAngsPixTol=sRateAngsPixTol
-        )
-
-        # Check coordinate properties
-        self.checkCoordinate(
-            coord=inParticleSet.getCoordinates(),
-            expectedX=expectedX,
-            expectedY=expectedY,
-            expectedMicId=expectedMicId
-        )
-
-        # Validate each particle in the set
-        for particle in inParticleSet:
-            parId = particle.getClassId()
-            # TODO: Uncomment and implement individual particle validation
-            # print(f'---> Checking particle ID = {parId}')
-            # self.checkParticle(particle, ...)
-
-    # ==========================================
-    # 3. MÉTODOS AUXILIARES O DE CLASES ACOMPAÑANTES
-    # ==========================================
-
-    def checkSetGeneralProps(self,
-                             inSet,
+    def checkSetGeneralProps(self, inSet,
                              expectedSetSize: int,
-                             expectedSRate: float,
+                             expectedSRate: Optional[float] = None,
                              streamState: Optional[int] = None,
                              sRateAngsPixTol: float = 0.01) -> None:
-        """
-        Validate general properties of a Scipion set object.
+        """Validate general properties of a Scipion set.
 
-        :param inSet: Scipion set object to validate
-        :param expectedSetSize: Expected number of items in set
-        :param expectedSRate: Expected sampling rate (Å/pix)
-        :param streamState: Expected stream state (None = don't check, 2 = closed stream)
-        :param sRateAngsPixTol: Tolerance for sampling rate comparison (Å/pix)
+        Parameters
+        ----------
+        inSet : Set
+            Scipion set object to validate.
+        expectedSetSize : int
+            Expected number of items (checked only when > 0).
+        expectedSRate : float, optional
+            Expected sampling rate in A/pix. ``None`` to skip.
+        streamState : int, optional
+            Expected stream state (2 = closed). ``None`` to skip.
+        sRateAngsPixTol : float
+            Tolerance for the sampling-rate comparison.
         """
-        # Check set size if greater than 0
         if expectedSetSize > 0:
             self.assertSetSize(inSet, expectedSetSize)
-
-        # Check sampling rate
-        self.assertAlmostEqual(
-            inSet.getSamplingRate(), expectedSRate,
-            delta=sRateAngsPixTol,
-            msg=f"Sampling rate mismatch: expected {expectedSRate} ± {sRateAngsPixTol}, got {inSet.getSamplingRate()}"
-        )
-
-        # Check stream state if provided
+        if expectedSRate is not None:
+            self.assertAlmostEqual(inSet.getSamplingRate(), expectedSRate,
+                                   delta=sRateAngsPixTol,
+                                   msg=f"Sampling rate mismatch: "
+                                       f"expected {expectedSRate} +/- {sRateAngsPixTol}, "
+                                       f"got {inSet.getSamplingRate()}")
         if streamState is not None:
-            self.assertEqual(
-                inSet.getStreamState(), streamState,
-                f"Stream state mismatch: expected {streamState}, got {inSet.getStreamState()}"
-            )
-
-        # Verify properties are persisted in database
-        self.assertTrue(
-            inSet.hasProperty("self"),
-            f"Set {inSet.getFileName()} does not have 'self' in properties table. "
-            f"Properties may not be persisted correctly."
-        )
+            self.assertEqual(inSet.getStreamState(), streamState,
+                             msg=f"Stream state mismatch: "
+                                 f"expected {streamState}, "
+                                 f"got {inSet.getStreamState()}")
+        self.assertTrue(inSet.hasProperty("self"),
+                        msg=f"Set {inSet.getFileName()} does not have 'self' "
+                            f"in the properties table -- properties may not be "
+                            f"persisted correctly.")
 
     def checkTransform(self,
                        shiftObject: Transform,
                        shifts: Optional[Tuple[float, float, float]] = None,
                        places: int = 2) -> None:
+        """Validate shift values stored in a Transform object.
+
+        Parameters
+        ----------
+        shiftObject : Transform
+            Transform object to validate (its ``getShifts()`` is checked).
+        shifts : tuple of float, optional
+            Expected (x, y, z) shifts. ``None`` to skip.
+        places : int
+            Decimal places for the floating-point comparison.
         """
-        Validate shift values in a Transform object.
-
-        NOTE: This validates SHIFT VALUES (x, y, z), not the transformation matrix.
-        For matrix validation, use checkTransformMatrix().
-
-        :param shiftObject: Transform object to validate
-        :param shifts: Expected shift values (x, y, z)
-        :param places: Decimal places for floating-point comparison (default: 2)
-        """
-        # Validate object exists
-        self.assertIsNotNone(shiftObject, "Transform is None")
-
-        # Check shift values if provided
+        self.assertIsNotNone(shiftObject, "Transform object is None.")
         if shifts is not None:
-            transformShifts = shiftObject.getShifts()
-            for expected, actual in zip(shifts, transformShifts):
-                self.assertAlmostEqual(
-                    actual, expected,
-                    places=places,
-                    msg=f"Shift mismatch: expected {expected}, got {actual}"
-                )
+            actual = shiftObject.getShifts()
+            for exp, act in zip(shifts, actual):
+                self.assertAlmostEqual(act, exp, places=places,
+                                       msg=f"Shift mismatch: "
+                                           f"expected {exp}, got {act}")
 
     def checkTransformMatrix(self,
                              outMatrix: np.ndarray,
                              alignment: bool = False,
                              is2d: bool = False) -> None:
-        """
-        Validate the shape and contents of a transformation matrix.
+        """Validate the shape and coarse content of a transformation matrix.
 
-        NOTE: This validates the MATRIX itself, not shift values.
-        For shift validation, use checkTransform().
-
-        :param outMatrix: Transformation matrix to validate (numpy array)
-        :param alignment: Whether matrix represents alignment (non-identity) or default (identity)
-        :param is2d: Whether to expect 3x3 (True) or 4x4 (False) matrix
+        Parameters
+        ----------
+        outMatrix : numpy.ndarray
+            Transformation matrix to validate.
+        alignment : bool
+            If ``True`` the matrix must **not** be the identity.
+            If ``False`` it must **be** the identity.
+        is2d : bool
+            If ``True`` a 3x3 matrix is expected; otherwise 4x4.
         """
-        # Determine expected matrix size
         size = 3 if is2d else 4
-        transfMatrixShape = (size, size)
-        identityMatrix = np.eye(size)
-
-        # Validate matrix object
-        self.assertIsNotNone(outMatrix, "Transform matrix is None")
-
-        # Convert to numpy array if needed
-        if type(outMatrix) is not np.ndarray:
+        expShape = (size, size)
+        identity = np.eye(size)
+        self.assertIsNotNone(outMatrix, "Transform matrix is None.")
+        if not isinstance(outMatrix, np.ndarray):
             outMatrix = np.array(outMatrix)
-
         self.assertIsNotNone(outMatrix)
-
-        # Check matrix dimensions
-        self.assertEqual(
-            outMatrix.shape, transfMatrixShape,
-            f"Matrix shape mismatch: expected {transfMatrixShape}, got {outMatrix.shape}"
-        )
-
-        # Check matrix content (identity vs. alignment)
+        self.assertEqual(outMatrix.shape, expShape,
+                         msg=f"Matrix shape mismatch: "
+                             f"expected {expShape}, got {outMatrix.shape}")
         if alignment:
-            self.assertFalse(
-                np.array_equal(outMatrix, identityMatrix),
-                "Matrix should represent alignment but is identity"
-            )
+            self.assertFalse(np.array_equal(outMatrix, identity),
+                             msg="Matrix should represent an alignment "
+                                 "(non-identity) but is identity.")
         else:
-            self.assertTrue(
-                np.array_equal(outMatrix, identityMatrix),
-                "Matrix should be identity but represents alignment"
-            )
-
-    def checkMovieAlignment(self,
-                            alignment: MovieAlignment,
-                            expectedFirst: int,
-                            expectedLast: int,
-                            expectedXShifts: Optional[List[float]] = None,
-                            expectedYShifts: Optional[List[float]] = None) -> None:
-        """
-        Validate a MovieAlignment object.
-
-        :param alignment: MovieAlignment object to validate
-        :param expectedFirst: Expected first frame number
-        :param expectedLast: Expected last frame number
-        :param expectedXShifts: Expected X-axis shift values for each frame (optional)
-        :param expectedYShifts: Expected Y-axis shift values for each frame (optional)
-        """
-        # Validate object exists
-        self.assertIsNotNone(alignment, "MovieAlignment is None")
-
-        # Check frame range
-        first, last = alignment.getRange()
-        self.assertEqual(
-            first, expectedFirst,
-            f"First frame mismatch: expected {expectedFirst}, got {first}"
-        )
-        self.assertEqual(
-            last, expectedLast,
-            f"Last frame mismatch: expected {expectedLast}, got {last}"
-        )
-
-        # Check shift values if provided
-        if expectedXShifts is not None or expectedYShifts is not None:
-            xShifts, yShifts = alignment.getShifts()
-
-            # Validate X shifts
-            if expectedXShifts is not None:
-                self.assertEqual(
-                    len(xShifts), len(expectedXShifts),
-                    f"X shifts count mismatch: expected {len(expectedXShifts)}, got {len(xShifts)}"
-                )
-                for i, (expected, actual) in enumerate(zip(expectedXShifts, xShifts)):
-                    self.assertAlmostEqual(
-                        actual, expected, places=2,
-                        msg=f"X shift at frame {i} mismatch: expected {expected}, got {actual}"
-                    )
-
-            # Validate Y shifts
-            if expectedYShifts is not None:
-                self.assertEqual(
-                    len(yShifts), len(expectedYShifts),
-                    f"Y shifts count mismatch: expected {len(expectedYShifts)}, got {len(yShifts)}"
-                )
-                for i, (expected, actual) in enumerate(zip(expectedYShifts, yShifts)):
-                    self.assertAlmostEqual(
-                        actual, expected, places=2,
-                        msg=f"Y shift at frame {i} mismatch: expected {expected}, got {actual}"
-                    )
+            self.assertTrue(np.array_equal(outMatrix, identity),
+                            msg="Matrix should be identity but represents "
+                                "an alignment (non-identity).")
 
     def checkHeaderSRate(self,
-                         inObj: Union[SetOfVolumes, Volume, SetOfImages, Image],
+                         inObj: Union['SetOfVolumes', Volume, 'SetOfImages', Image],
                          expectedSRate: float,
                          sRateAngsPixTol: float = 0.01) -> None:
+        """Validate the sampling rate stored in the MRC header of a file.
+
+        Parameters
+        ----------
+        inObj : Volume, Image, SetOfVolumes or SetOfImages
+            Object whose backing file's header will be inspected.
+        expectedSRate : float
+            Expected sampling rate in A/pix.
+        sRateAngsPixTol : float
+            Tolerance for the comparison.
         """
-        Validate the sampling rate in file headers of volumes or images.
-
-        Reads MRC file headers and verifies voxel size values.
-
-        :param inObj: Object (Volume, Image, SetOfVolumes, SetOfImages) to validate
-        :param expectedSRate: Expected sampling rate (Å/pix)
-        :param sRateAngsPixTol: Tolerance for sampling rate comparison (Å/pix)
-        """
-        # Get file path
-        volumeFile = inObj.getFileName()
-
-        # Skip validation if file doesn't exist or is virtual
-        if not volumeFile or not os.path.exists(volumeFile):
+        fn = inObj.getFileName()
+        if not fn or not exists(fn):
             return
-
-        # Only validate MRC format files
-        if not volumeFile.endswith(".mrc") and not volumeFile.endswith(".mrcs"):
+        if not fn.endswith(('.mrc', '.mrcs')):
             return
-
-        # Read MRC header and validate voxel size
-        with mrcfile.open(volumeFile, permissive=True, header_only=True) as mrc:
+        with mrcfile.open(fn, permissive=True, header_only=True) as mrc:
             vs = mrc.voxel_size
-
-            # Determine which voxel size values to check
-            if isinstance(inObj, (Volume, SetOfVolumes)):
-                vs_values = [float(vs.x), float(vs.y), float(vs.z)]
-            else:
-                vs_values = [float(vs.x), float(vs.y)]
-
-            # Validate each voxel size value
-            for voxelSize in vs_values:
-                self.assertAlmostEqual(
-                    voxelSize, expectedSRate,
-                    delta=sRateAngsPixTol,
-                    msg=f"Voxel size mismatch in {volumeFile}\n"
-                        f"Expected: {expectedSRate} Å/pix (±{sRateAngsPixTol})\n"
-                        f"Got: {voxelSize} Å/pix\n"
-                        f"File header values: {vs}"
-                )
+            vals = [float(vs.x), float(vs.y), float(vs.z)] \
+                if isinstance(inObj, (Volume, SetOfVolumes)) \
+                else [float(vs.x), float(vs.y)]
+            for v in vals:
+                self.assertAlmostEqual(v, expectedSRate,
+                                       delta=sRateAngsPixTol,
+                                       msg=f"Header voxel size mismatch in "
+                                           f"{fn}: expected {expectedSRate} "
+                                           f"+/- {sRateAngsPixTol}, got {v}. "
+                                           f"Full header values: {vs}")
 
     def checkAcquisition(self,
                          acquisition: Acquisition,
@@ -1063,172 +208,1135 @@ class TestBaseCentralizedLayer(BaseTest):
                          magnification: Optional[float] = None,
                          doseInitial: Optional[float] = None,
                          dosePerFrame: Optional[float] = None) -> None:
-        """
-        Validate microscope acquisition parameters.
+        """Validate microscope acquisition parameters.
 
-        :param acquisition: Acquisition object to validate
-        :param voltage: Expected electron microscope voltage (kV)
-        :param sphericalAberration: Expected spherical aberration (mm)
-        :param amplitudeContrast: Expected amplitude contrast value [0-1]
-        :param magnification: Expected objective magnification
-        :param doseInitial: Expected initial dose (e⁻/Å²)
-        :param dosePerFrame: Expected dose per frame (e⁻/Å²)
-        """
-        # Validate object exists
-        self.assertIsNotNone(acquisition, "Acquisition is None")
+        All parameters are optional; only those provided are tested.
 
-        # Check voltage
+        Parameters
+        ----------
+        acquisition : Acquisition
+            Acquisition object to validate.
+        voltage : float, optional
+            Expected microscope voltage (kV).
+        sphericalAberration : float, optional
+            Expected spherical aberration (mm).
+        amplitudeContrast : float, optional
+            Expected amplitude contrast.
+        magnification : float, optional
+            Expected magnification.
+        doseInitial : float, optional
+            Expected initial dose (e-/A2).
+        dosePerFrame : float, optional
+            Expected dose per frame (e-/A2).
+        """
+        self.assertIsNotNone(acquisition, "Acquisition is None.")
         if voltage is not None:
-            self.assertAlmostEqual(
-                acquisition.getVoltage(), voltage,
-                places=1,
-                msg=f"Voltage mismatch: expected {voltage} kV, got {acquisition.getVoltage()} kV"
-            )
-
-        # Check spherical aberration
+            self.assertAlmostEqual(acquisition.getVoltage(), voltage,
+                                   delta=1,
+                                   msg=f"Voltage mismatch: "
+                                       f"expected {voltage}, "
+                                       f"got {acquisition.getVoltage()}")
         if sphericalAberration is not None:
-            self.assertAlmostEqual(
-                acquisition.getSphericalAberration(), sphericalAberration,
-                places=2,
-                msg=f"Spherical aberration mismatch: expected {sphericalAberration} mm, got {acquisition.getSphericalAberration()} mm"
-            )
-
-        # Check amplitude contrast
+            self.assertAlmostEqual(acquisition.getSphericalAberration(),
+                                   sphericalAberration, delta=0.01,
+                                   msg=f"Spherical aberration mismatch: "
+                                       f"expected {sphericalAberration}, "
+                                       f"got {acquisition.getSphericalAberration()}")
         if amplitudeContrast is not None:
-            self.assertAlmostEqual(
-                acquisition.getAmplitudeContrast(), amplitudeContrast,
-                places=2,
-                msg=f"Amplitude contrast mismatch: expected {amplitudeContrast}, got {acquisition.getAmplitudeContrast()}"
-            )
-
-        # Check magnification
+            self.assertAlmostEqual(acquisition.getAmplitudeContrast(),
+                                   amplitudeContrast, delta=0.01,
+                                   msg=f"Amplitude contrast mismatch: "
+                                       f"expected {amplitudeContrast}, "
+                                       f"got {acquisition.getAmplitudeContrast()}")
         if magnification is not None:
-            self.assertAlmostEqual(
-                acquisition.getMagnification(), magnification,
-                places=1,
-                msg=f"Magnification mismatch: expected {magnification}x, got {acquisition.getMagnification()}x"
-            )
-
-        # Check initial dose
+            self.assertAlmostEqual(acquisition.getMagnification(),
+                                   magnification, delta=1,
+                                   msg=f"Magnification mismatch: "
+                                       f"expected {magnification}, "
+                                       f"got {acquisition.getMagnification()}")
         if doseInitial is not None:
-            self.assertAlmostEqual(
-                acquisition.getDoseInitial(), doseInitial,
-                places=2,
-                msg=f"Initial dose mismatch: expected {doseInitial} e⁻/Å², got {acquisition.getDoseInitial()} e⁻/Å²"
-            )
-
-        # Check dose per frame
+            self.assertAlmostEqual(acquisition.getDoseInitial(),
+                                   doseInitial, delta=0.01,
+                                   msg=f"Initial dose mismatch: "
+                                       f"expected {doseInitial}, "
+                                       f"got {acquisition.getDoseInitial()}")
         if dosePerFrame is not None:
-            self.assertAlmostEqual(
-                acquisition.getDosePerFrame(), dosePerFrame,
-                places=2,
-                msg=f"Dose per frame mismatch: expected {dosePerFrame} e⁻/Å², got {acquisition.getDosePerFrame()} e⁻/Å²"
-            )
+            self.assertAlmostEqual(acquisition.getDosePerFrame(),
+                                   dosePerFrame, delta=0.01,
+                                   msg=f"Dose per frame mismatch: "
+                                       f"expected {dosePerFrame}, "
+                                       f"got {acquisition.getDosePerFrame()}")
 
     def checkCTF(self,
                  ctf: CTFModel,
                  defocusU: float,
                  defocusV: float,
                  defocusAngle: float,
-                 resolution: Optional[float] = None) -> None:
+                 resolution: Optional[float] = None,
+                 phaseShift: Optional[float] = None) -> None:
+        """Validate CTF model parameters.
+
+        Parameters
+        ----------
+        ctf : CTFModel
+            CTF model to validate.
+        defocusU : float
+            Expected defocus in U (A).
+        defocusV : float
+            Expected defocus in V (A).
+        defocusAngle : float
+            Expected defocus angle (degrees).
+        resolution : float, optional
+            Expected resolution (A).
+        phaseShift : float, optional
+            Expected phase shift (degrees).
         """
-        Validate CTF (Contrast Transfer Function) model parameters.
-
-        :param ctf: CTFModel object to validate
-        :param defocusU: Expected defocus in U direction (Å)
-        :param defocusV: Expected defocus in V direction (Å)
-        :param defocusAngle: Expected defocus angle (degrees)
-        :param resolution: Expected CTF resolution (Å) (optional)
-        """
-        # Validate object exists
-        self.assertIsNotNone(ctf, "CTFModel is None")
-
-        # Check defocus U
-        self.assertAlmostEqual(
-            ctf.getDefocusU(), defocusU,
-            places=1,
-            msg=f"DefocusU mismatch: expected {defocusU} Å, got {ctf.getDefocusU()} Å"
-        )
-
-        # Check defocus V
-        self.assertAlmostEqual(
-            ctf.getDefocusV(), defocusV,
-            places=1,
-            msg=f"DefocusV mismatch: expected {defocusV} Å, got {ctf.getDefocusV()} Å"
-        )
-
-        # Check defocus angle
-        self.assertAlmostEqual(
-            ctf.getDefocusAngle(), defocusAngle,
-            places=1,
-            msg=f"DefocusAngle mismatch: expected {defocusAngle}°, got {ctf.getDefocusAngle()}°"
-        )
-
-        # Check resolution if provided
+        self.assertIsNotNone(ctf, "CTFModel is None.")
+        if not isinstance(ctf, CTFModel):
+            self.fail(f"Expected CTFModel, got {type(ctf)}.")
+        self.assertAlmostEqual(ctf.getDefocusU(), defocusU, delta=1,
+                               msg=f"DefocusU mismatch: "
+                                   f"expected {defocusU}, "
+                                   f"got {ctf.getDefocusU()}")
+        self.assertAlmostEqual(ctf.getDefocusV(), defocusV, delta=1,
+                               msg=f"DefocusV mismatch: "
+                                   f"expected {defocusV}, "
+                                   f"got {ctf.getDefocusV()}")
+        self.assertAlmostEqual(ctf.getDefocusAngle(), defocusAngle,
+                               delta=1,
+                               msg=f"DefocusAngle mismatch: "
+                                   f"expected {defocusAngle}, "
+                                   f"got {ctf.getDefocusAngle()}")
         if resolution is not None:
-            self.assertAlmostEqual(
-                ctf.getResolution(), resolution,
-                places=2,
-                msg=f"Resolution mismatch: expected {resolution} Å, got {ctf.getResolution()} Å"
-            )
+            self.assertAlmostEqual(ctf.getResolution(), resolution,
+                                   delta=0.01,
+                                   msg=f"Resolution mismatch: "
+                                       f"expected {resolution}, "
+                                       f"got {ctf.getResolution()}")
+        if phaseShift is not None:
+            self.assertTrue(ctf.hasPhaseShift(),
+                            msg="CTF has no phase shift but one was expected.")
+            self.assertAlmostEqual(ctf.getPhaseShift(), phaseShift,
+                                   delta=1,
+                                   msg=f"PhaseShift mismatch: "
+                                       f"expected {phaseShift}, "
+                                       f"got {ctf.getPhaseShift()}")
 
-    # REFERENCIA PARA HACER
-    #def checkExtracted3dCoordinates(self,
-    #                                inSet: SetOfCoordinates3D,
-    #                                outCoords: SetOfCoordinates3D,
-    #                                expectedSetSize: int = -1,
-    #                                expectedBoxSize: int = -1,
-    #                                expectedSRate: float = -1.0,
-    #                                convention: Union[str, None] = TR_SCIPION,
-    #                                orientedParticles: bool = False) -> None:
-    #    """Checks the results of a coordinate extraction protocol.
+    def checkMovieAlignment(self,
+                            alignment: MovieAlignment,
+                            expectedFirst: int,
+                            expectedLast: int,
+                            expectedXShifts: Optional[List[float]] = None,
+                            expectedYShifts: Optional[List[float]] = None):
+        """Validate a MovieAlignment object.
 
-    #    :param inSet: input set from which the coordinates were extracted. It can be a SetOf3DCoordinates or a
-    #    SetOfSubTomograms.
-    #    :param outCoords: the resulting SetOf3DCoordinates after the coordinate extraction.
-    #    :param expectedSetSize: expected set site to check.
-    #    :param expectedBoxSize: expected box size, in pixels, to check.
-    #    :param expectedSRate: expected sampling rate, in Å/pix, to check.
-    #    :param convention: TR_SCIPION by default. Convention of the coordinates. See scipion-em-tomo/tomo/constants.py.
-    #    :param orientedParticles: False by default. Used to specify if the expected transformation matrix should be
-    #    and eye matrix (False) or not (True)."""
-    #    if type(inSet) == SetOfSubTomograms:
-    #        inSet = inSet.getCoordinates3D()
-    #    # First, check the set size, sampling rate, and box size
-    #    self.checkCoordsOrPartsSetGeneralProps(outCoords,
-    #                                           expectedSetSize=expectedSetSize,
-    #                                           expectedSRate=expectedSRate,
-    #                                           expectedBoxSize=expectedBoxSize)
-    #    # Check the coordinate extremes
-    #    inCoordsExtremes = self.getMinAndMaxCoordValuesFromSet(inSet)
-    #    outCoordsExtremes = self.getMinAndMaxCoordValuesFromSet(outCoords)
-    #    coordScaleFactor = inSet.getSamplingRate() / outCoords.getSamplingRate()
-    #    shiftsScaleFactor = 1 / coordScaleFactor
-    #    self.assertTrue(np.array_equal(outCoordsExtremes, coordScaleFactor * inCoordsExtremes))
-    #    # Other checks per coordinate
-    #    for inElement, outCoord in zip(inSet, outCoords):
-    #        # Check the transformation matrices and shifts
-    #        inSetTrMatrix = inElement.getMatrix(convention=convention)
-    #        outCoordTrMatrix = outCoord.getMatrix(convention=convention)
-    #        self.checkTransformMatrix(outCoordTrMatrix, alignment=orientedParticles)
-    #        self.checkShiftsScaling(inSetTrMatrix, outCoordTrMatrix, shiftsScaleFactor)
-    #        # Check the tomoId
-    #        self.assertEqual(outCoord.getTomoId(), inElement.getTomoId())
+        Parameters
+        ----------
+        alignment : MovieAlignment
+            The alignment object to validate.
+        expectedFirst : int
+            Expected first frame used for alignment.
+        expectedLast : int
+            Expected last frame used for alignment.
+        expectedXShifts : list of float, optional
+            Expected X shifts per frame.
+        expectedYShifts : list of float, optional
+            Expected Y shifts per frame.
+        """
+        self.assertIsNotNone(alignment, "MovieAlignment is None.")
+        first, last = alignment.getRange()
+        self.assertEqual(first, expectedFirst,
+                         msg=f"First frame mismatch: "
+                             f"expected {expectedFirst}, got {first}")
+        self.assertEqual(last, expectedLast,
+                         msg=f"Last frame mismatch: "
+                             f"expected {expectedLast}, got {last}")
+        if expectedXShifts is not None or expectedYShifts is not None:
+            xShifts, yShifts = alignment.getShifts()
+            if expectedXShifts is not None:
+                self.assertEqual(len(xShifts), len(expectedXShifts),
+                                 msg=f"X-shifts length mismatch: "
+                                     f"expected {len(expectedXShifts)}, "
+                                     f"got {len(xShifts)}")
+                for i, (exp, act) in enumerate(zip(expectedXShifts, xShifts)):
+                    self.assertAlmostEqual(act, exp, places=2,
+                                           msg=f"X shift [{i}] mismatch: "
+                                               f"expected {exp}, got {act}")
+            if expectedYShifts is not None:
+                self.assertEqual(len(yShifts), len(expectedYShifts),
+                                 msg=f"Y-shifts length mismatch: "
+                                     f"expected {len(expectedYShifts)}, "
+                                     f"got {len(yShifts)}")
+                for i, (exp, act) in enumerate(zip(expectedYShifts, yShifts)):
+                    self.assertAlmostEqual(act, exp, places=2,
+                                           msg=f"Y shift [{i}] mismatch: "
+                                               f"expected {exp}, got {act}")
 
-    # def _checkVolumeOrigin(self,
-    #                        vol: Volume,
-    #                        expectedOriginShifts: Union[List[float], None] = None,
-    #                        places: int = 1) -> None:
-    #     """
-    #     Check volume origin shifts.
-    #     :param vol: Volume object
-    #     :param expectedOriginShifts: Expected origin shifts
-    #     :param places: Decimal places for comparison (default: 1)
-    #     """
-    #     if expectedOriginShifts is not None:
-    #         x, y, z = vol.getOrigin().getShifts()
-    #         for i, j in zip([x, y, z], expectedOriginShifts):
-    #             self.assertAlmostEqual(
-    #                 i, j, places=places,
-    #                 msg="Expected and resulting volume shifts are different"
-    #             )
+    def checkObjectEnabled(self, obj, isExcluded: bool, objLabel: str = ""):
+        """Assert that an object's enabled/disabled state is as expected.
+
+        Parameters
+        ----------
+        obj : EMObject
+            Object whose ``isEnabled()`` status is checked.
+        isExcluded : bool
+            ``True`` if the object is expected to be disabled (excluded).
+        objLabel : str
+            Optional label for error messages.
+        """
+        enabled = obj.isEnabled()
+        if isExcluded:
+            self.assertFalse(enabled,
+                             msg=f"{objLabel}: object expected to be "
+                                 f"disabled, but it is enabled.")
+        else:
+            self.assertTrue(enabled,
+                            msg=f"{objLabel}: object expected to be "
+                                f"enabled, but it is disabled.")
+
+    # =========================================================================
+    # 2. INDIVIDUAL OBJECT CHECKS
+    # =========================================================================
+
+    def checkImage(self,
+                   img: Image,
+                   imageId: Optional[int] = None,
+                   imageName: Optional[str] = None,
+                   samplingRate: Optional[float] = None,
+                   dim: Optional[Tuple[int, int, int]] = None,
+                   hasCTF: Optional[bool] = None,
+                   transformShifts: Optional[Tuple[float, float, float]] = None,
+                   origin: Optional[Tuple[float, float, float]] = None,
+                   voltage: Optional[float] = None,
+                   sphericalAberration: Optional[float] = None,
+                   amplitudeContrast: Optional[float] = None,
+                   magnification: Optional[float] = None,
+                   doseInitial: Optional[float] = None,
+                   dosePerFrame: Optional[float] = None,
+                   sRateAngsPixTol: float = 0.01,
+                   checkHeaderApix: bool = True) -> None:
+        """Validate an Image object and its associated attributes.
+
+        Parameters
+        ----------
+        img : Image
+            Image object to validate.
+        imageId : int, optional
+            Expected object ID.
+        imageName : str, optional
+            Expected base filename.
+        samplingRate : float, optional
+            Expected sampling rate (A/pix).
+        dim : tuple of int, optional
+            Expected (x, y, z) dimensions.
+        hasCTF : bool, optional
+            ``True``/``False`` to enforce CTF presence/absence;
+            ``None`` to skip.
+        transformShifts : tuple of float, optional
+            Expected (x, y, z) transform shifts.
+        origin : tuple of float, optional
+            Expected (x, y, z) origin shifts.
+        voltage : float, optional
+            Expected microscope voltage (kV).
+        sphericalAberration : float, optional
+            Expected spherical aberration (mm).
+        amplitudeContrast : float, optional
+            Expected amplitude contrast.
+        magnification : float, optional
+            Expected magnification.
+        doseInitial : float, optional
+            Expected initial dose (e-/A2).
+        dosePerFrame : float, optional
+            Expected dose per frame (e-/A2).
+        sRateAngsPixTol : float
+            Tolerance for sampling-rate comparisons.
+        checkHeaderApix : bool
+            If ``True`` (default) also validate the sampling rate in the
+            file header (MRC voxel size). Set to ``False`` for protocols
+            that only produce metadata without modifying the binary file.
+        """
+        if not isinstance(img, Image):
+            self.fail(f"Expected Image, got {type(img)}.")
+
+        # Object ID
+        if imageId is not None:
+            self.assertEqual(img.getObjId(), imageId,
+                             msg=f"Image ID mismatch: "
+                                 f"expected {imageId}, got {img.getObjId()}")
+
+        # File name
+        if imageName is not None:
+            self.assertEqual(img.getFileName(), imageName,
+                             msg=f"Image filename mismatch: "
+                                 f"expected {imageName}, "
+                                 f"got {img.getFileName()}")
+
+        # Sampling rate
+        if samplingRate is not None:
+            self.assertAlmostEqual(img.getSamplingRate(), samplingRate,
+                                   delta=sRateAngsPixTol,
+                                   msg=f"Sampling rate mismatch: "
+                                       f"expected {samplingRate}, "
+                                       f"got {img.getSamplingRate()}")
+            if checkHeaderApix:
+                self.checkHeaderSRate(img, expectedSRate=samplingRate,
+                                      sRateAngsPixTol=sRateAngsPixTol)
+
+        # Dimensions
+        if dim is not None:
+            actualDim = img.getDim()
+            self.assertIsNotNone(actualDim,
+                                 msg=f"Image dimensions are None for "
+                                     f"{img.getFileName()}.")
+            self.assertEqual(actualDim, dim,
+                             msg=f"Dimension mismatch: "
+                                 f"expected {dim}, got {actualDim}")
+
+        # CTF presence
+        if hasCTF is not None:
+            if hasCTF:
+                self.assertTrue(img.hasCTF(),
+                                msg="Image should have a CTF model but does not.")
+            else:
+                self.assertFalse(img.hasCTF(),
+                                 msg="Image should not have a CTF model but does.")
+
+        # Transform
+        if transformShifts is not None:
+            self.assertTrue(img.hasTransform(),
+                            msg="Image should have a transform but does not.")
+            self.checkTransform(img.getTransform(), shifts=transformShifts)
+
+        # Origin
+        if origin is not None:
+            self.assertTrue(img.hasOrigin(),
+                            msg="Image should have an origin but does not.")
+            self.checkTransform(img.getOrigin(), shifts=origin)
+
+        # Acquisition
+        if img.hasAcquisition():
+            self.checkAcquisition(img.getAcquisition(),
+                                  voltage=voltage,
+                                  sphericalAberration=sphericalAberration,
+                                  amplitudeContrast=amplitudeContrast,
+                                  magnification=magnification,
+                                  doseInitial=doseInitial,
+                                  dosePerFrame=dosePerFrame)
+
+    def checkMicrograph(self,
+                        mic: Micrograph,
+                        micName: Optional[str] = None,
+                        micId: Optional[int] = None,
+                        imageName: Optional[str] = None,
+                        samplingRate: Optional[float] = None,
+                        dim: Optional[Tuple[int, int, int]] = None,
+                        hasCTF: Optional[bool] = None,
+                        transformShifts: Optional[Tuple[float, float, float]] = None,
+                        origin: Optional[Tuple[float, float, float]] = None,
+                        voltage: Optional[float] = None,
+                        sphericalAberration: Optional[float] = None,
+                        amplitudeContrast: Optional[float] = None,
+                        magnification: Optional[float] = None,
+                        doseInitial: Optional[float] = None,
+                        dosePerFrame: Optional[float] = None,
+                        sRateAngsPixTol: float = 0.01) -> None:
+        """Validate a Micrograph object.
+
+        See ``checkImage`` for the parameter documentation of inherited
+        Image attributes.
+        """
+        if not isinstance(mic, Micrograph):
+            self.fail(f"Expected Micrograph, got {type(mic)}.")
+
+        # Micrograph-specific name
+        if micName is not None:
+            self.assertEqual(mic.getMicName(), micName,
+                             msg=f"Micrograph name mismatch: "
+                                 f"expected {micName}, got {mic.getMicName()}")
+
+        self.checkImage(mic, imageId=micId, imageName=imageName,
+                        samplingRate=samplingRate, dim=dim, hasCTF=hasCTF,
+                        transformShifts=transformShifts, origin=origin,
+                        voltage=voltage,
+                        sphericalAberration=sphericalAberration,
+                        amplitudeContrast=amplitudeContrast,
+                        magnification=magnification,
+                        doseInitial=doseInitial,
+                        dosePerFrame=dosePerFrame,
+                        sRateAngsPixTol=sRateAngsPixTol)
+
+    def checkMovie(self,
+                   mov: Movie,
+                   movieId: Optional[int] = None,
+                   movieName: Optional[str] = None,
+                   samplingRate: Optional[float] = None,
+                   voltage: Optional[float] = None,
+                   dim: Optional[Tuple[int, int, int]] = None,
+                   framesRange: Optional[Tuple[int, int, int]] = None,
+                   numFrames: Optional[int] = None,
+                   alignment: Optional[MovieAlignment] = None,
+                   alignmentFirst: Optional[int] = None,
+                   alignmentLast: Optional[int] = None,
+                   alignmentXShifts: Optional[List[float]] = None,
+                   alignmentYShifts: Optional[List[float]] = None,
+                   sRateAngsPixTol: float = 0.01) -> None:
+        """Validate a Movie object.
+
+        Parameters
+        ----------
+        mov : Movie
+            Movie object to validate.
+        movieId : int, optional
+            Expected movie ID.
+        movieName : str, optional
+            Expected movie name.
+        samplingRate : float, optional
+            Expected sampling rate (A/pix).
+        voltage : float, optional
+            Expected microscope voltage (kV).
+        dim : tuple of int, optional
+            Expected (x, y, z) dimensions.
+        framesRange : tuple of int, optional
+            Expected (firstFrame, lastFrame, firstFrameIndex).
+        numFrames : int, optional
+            Expected number of frames.
+        alignment : MovieAlignment, optional
+            Optional alignment object for ``checkMovieAlignment``.
+        alignmentFirst, alignmentLast : int
+            Expected alignment frame range (used when *alignment* is given).
+        alignmentXShifts, alignmentYShifts : list of float, optional
+            Expected alignment shifts (used when *alignment* is given).
+        sRateAngsPixTol : float
+            Tolerance for sampling-rate comparisons.
+        """
+        if not isinstance(mov, Movie):
+            self.fail(f"Expected Movie, got {type(mov)}.")
+
+        # Check inherited Image properties
+        self.checkImage(mov, samplingRate=samplingRate, voltage=voltage,
+                        dim=dim, sRateAngsPixTol=sRateAngsPixTol)
+
+        self.assertEqual(mov.getMovieId(), movieId,
+                         msg=f"Movie ID mismatch: "
+                             f"expected {movieId}, got {mov.getMovieId()}")
+
+        self.assertEqual(mov.getMovieName(), movieName,
+                         msg=f"Movie name mismatch: "
+                             f"expected {movieName}, got {mov.getMovieName()}")
+
+        # FramesRange
+        fr = mov.getFramesRange()
+        self.assertIsNotNone(fr, "Movie should have a FramesRange.")
+        if framesRange is not None:
+            first, last, firstIdx = framesRange
+            self.assertEqual(fr.getFirstFrame(), first,
+                             msg=f"First frame mismatch: "
+                                 f"expected {first}, got {fr.getFirstFrame()}")
+            self.assertEqual(fr.getLastFrame(), last,
+                             msg=f"Last frame mismatch: "
+                                 f"expected {last}, got {fr.getLastFrame()}")
+            self.assertEqual(fr.getFirstFrameIndex(), firstIdx,
+                             msg=f"First frame index mismatch: "
+                                 f"expected {firstIdx}, "
+                                 f"got {fr.getFirstFrameIndex()}")
+
+        # Number of frames
+        if numFrames is not None:
+            self.assertEqual(mov.getNumberOfFrames(), numFrames,
+                             msg=f"Number of frames mismatch: "
+                                 f"expected {numFrames}, "
+                                 f"got {mov.getNumberOfFrames()}")
+
+        # Movie alignment
+        if alignment is not None:
+            self.checkMovieAlignment(alignment,
+                                     expectedFirst=alignmentFirst,
+                                     expectedLast=alignmentLast,
+                                     expectedXShifts=alignmentXShifts,
+                                     expectedYShifts=alignmentYShifts)
+
+    def checkParticle(self,
+                      particle: Particle,
+                      classId: Optional[int] = None,
+                      micId: Optional[int] = None,
+                      particleId: Optional[int] = None,
+                      imageName: Optional[str] = None,
+                      samplingRate: Optional[float] = None,
+                      dim: Optional[Tuple[int, int, int]] = None,
+                      hasCTF: Optional[bool] = None,
+                      transformShifts: Optional[Tuple[float, float, float]] = None,
+                      origin: Optional[Tuple[float, float, float]] = None,
+                      voltage: Optional[float] = None,
+                      sphericalAberration: Optional[float] = None,
+                      amplitudeContrast: Optional[float] = None,
+                      magnification: Optional[float] = None,
+                      doseInitial: Optional[float] = None,
+                      dosePerFrame: Optional[float] = None,
+                      sRateAngsPixTol: float = 0.01,
+                      corExpectedX: Optional[int] = None,
+                      corExpectedY: Optional[int] = None,
+                      corExpectedMicId: Optional[int] = None) -> None:
+        """Validate a Particle object.
+
+        In addition to the ``checkImage`` parameters documented above,
+        the following Particle-specific parameters are available:
+        """
+        if not isinstance(particle, Particle):
+            self.fail(f"Expected Particle, got {type(particle)}.")
+
+        # Particle-specific attributes
+        if classId is not None:
+            self.assertEqual(particle.getClassId(), classId,
+                             msg=f"Class ID mismatch: "
+                                 f"expected {classId}, "
+                                 f"got {particle.getClassId()}")
+        if micId is not None:
+            self.assertEqual(particle.getMicId(), micId,
+                             msg=f"Micrograph ID mismatch: "
+                                 f"expected {micId}, got {particle.getMicId()}")
+
+        # Inherited Image attributes
+        self.checkImage(particle, imageId=particleId, imageName=imageName,
+                        samplingRate=samplingRate, dim=dim, hasCTF=hasCTF,
+                        transformShifts=transformShifts, origin=origin,
+                        voltage=voltage,
+                        sphericalAberration=sphericalAberration,
+                        amplitudeContrast=amplitudeContrast,
+                        magnification=magnification,
+                        doseInitial=doseInitial,
+                        dosePerFrame=dosePerFrame,
+                        sRateAngsPixTol=sRateAngsPixTol)
+
+        # Associated coordinate
+        coord = particle.getCoordinate()
+        if any(x is not None for x in [corExpectedX, corExpectedY,
+                                       corExpectedMicId]):
+            self.checkCoordinate(coord, expectedX=corExpectedX,
+                                 expectedY=corExpectedY,
+                                 expectedMicId=corExpectedMicId)
+
+    def checkVolume(self,
+                    vol: Volume,
+                    expectedSRate: Optional[float] = None,
+                    expectedBoxSize: Optional[int] = None,
+                    hasCTF: Optional[bool] = None,
+                    hasHalves: Optional[bool] = None,
+                    expectedOriginShifts: Optional[Union[List[float],
+                                                         Tuple[float, ...]]] = None,
+                    sRateAngsPixTol: float = 0.01,
+                    checkHeaderApix: bool = True) -> None:
+        """Validate a Volume object.
+
+        Parameters
+        ----------
+        vol : Volume
+            Volume object to validate.
+        expectedSRate : float, optional
+            Expected sampling rate (A/pix).
+        expectedBoxSize : int, optional
+            Expected cubic box size (pixels). If provided, dimensions
+            are checked as (boxSize, boxSize, boxSize).
+        hasCTF : bool, optional
+            ``True``/``False`` to enforce CTF presence/absence.
+        hasHalves : bool, optional
+            ``True``/``False`` to enforce presence/absence of half-maps.
+        expectedOriginShifts : list or tuple of float, optional
+            Expected (x, y, z) origin shifts in A.
+        sRateAngsPixTol : float
+            Tolerance for sampling-rate comparisons.
+        checkHeaderApix : bool
+            If ``True`` also validate the sampling rate in the file header.
+        """
+        if not isinstance(vol, Volume):
+            self.fail(f"Expected Volume, got {type(vol)}.")
+
+        # Build dim tuple from box size
+        dim = (expectedBoxSize, expectedBoxSize, expectedBoxSize) \
+            if expectedBoxSize is not None else None
+
+        # Origin tuple
+        origin = tuple(expectedOriginShifts) \
+            if expectedOriginShifts is not None else None
+
+        # Check inherited Image properties
+        self.checkImage(vol, samplingRate=expectedSRate, dim=dim,
+                        hasCTF=hasCTF, origin=origin,
+                        sRateAngsPixTol=sRateAngsPixTol,
+                        checkHeaderApix=checkHeaderApix)
+
+        # File existence
+        fn = vol.getFileName()
+        self.assertTrue(exists(fn),
+                        msg=f"Volume file does not exist: {fn}")
+
+        # Half-maps
+        if hasHalves is not None:
+            if hasHalves:
+                self.assertTrue(vol.hasHalfMaps(),
+                                msg="Volume should have half-maps registered "
+                                    "but does not.")
+                half1, half2 = vol.getHalfMaps().split(',')
+                self.assertTrue(exists(half1),
+                                msg=f"Volume first half does not exist: "
+                                    f"{half1}")
+                self.assertTrue(exists(half2),
+                                msg=f"Volume second half does not exist: "
+                                    f"{half2}")
+
+    def checkCoordinate(self,
+                        coord: Coordinate,
+                        expectedX: Optional[int] = None,
+                        expectedY: Optional[int] = None,
+                        expectedMicId: Optional[int] = None) -> None:
+        """Validate a Coordinate object.
+
+        Parameters
+        ----------
+        coord : Coordinate
+            Coordinate object to validate.
+        expectedX : int, optional
+            Expected X coordinate (pixels).
+        expectedY : int, optional
+            Expected Y coordinate (pixels).
+        expectedMicId : int, optional
+            Expected micrograph ID the coordinate belongs to.
+        """
+        if not isinstance(coord, Coordinate):
+            self.fail(f"Expected Coordinate, got {type(coord)}.")
+        if expectedX is not None:
+            self.assertEqual(coord.getX(), expectedX,
+                             msg=f"X coordinate mismatch: "
+                                 f"expected {expectedX}, got {coord.getX()}")
+        if expectedY is not None:
+            self.assertEqual(coord.getY(), expectedY,
+                             msg=f"Y coordinate mismatch: "
+                                 f"expected {expectedY}, got {coord.getY()}")
+        if expectedMicId is not None:
+            self.assertEqual(coord.getMicId(), expectedMicId,
+                             msg=f"Micrograph ID mismatch: "
+                                 f"expected {expectedMicId}, "
+                                 f"got {coord.getMicId()}")
+
+    def checkAtomStruct(self,
+                        atomStruct: AtomStruct,
+                        hasVolume: bool = False,
+                        pseudoatoms: bool = False) -> None:
+        """Validate an AtomStruct (e.g. PDB file) object.
+
+        Parameters
+        ----------
+        atomStruct : AtomStruct
+            Object to validate.
+        hasVolume : bool
+            Whether an associated volume is expected.
+        pseudoatoms : bool
+            Whether the structure uses pseudo-atoms.
+        """
+        if not isinstance(atomStruct, AtomStruct):
+            self.fail(f"Expected AtomStruct, got {type(atomStruct)}.")
+        self.assertTrue(exists(atomStruct.getFileName()),
+                        msg=f"AtomStruct file does not exist: "
+                            f"{atomStruct.getFileName()}")
+        self.assertEqual(atomStruct.hasVolume(), hasVolume,
+                         msg=f"hasVolume mismatch: "
+                             f"expected {hasVolume}, "
+                             f"got {atomStruct.hasVolume()}")
+        self.assertEqual(atomStruct.getPseudoAtoms(), pseudoatoms,
+                         msg=f"pseudoatoms mismatch: "
+                             f"expected {pseudoatoms}, "
+                             f"got {atomStruct.getPseudoAtoms()}")
+
+    def checkMask(self,
+                  mask: Mask,
+                  classId: Optional[int] = None,
+                  micId: Optional[int] = None,
+                  imageId: Optional[int] = None,
+                  imageName: Optional[str] = None,
+                  samplingRate: Optional[float] = None,
+                  dim: Optional[Tuple[int, int, int]] = None,
+                  hasCTF: Optional[bool] = None,
+                  transformShifts: Optional[Tuple[float, float, float]] = None,
+                  origin: Optional[Tuple[float, float, float]] = None,
+                  voltage: Optional[float] = None,
+                  sphericalAberration: Optional[float] = None,
+                  amplitudeContrast: Optional[float] = None,
+                  magnification: Optional[float] = None,
+                  doseInitial: Optional[float] = None,
+                  dosePerFrame: Optional[float] = None,
+                  sRateAngsPixTol: float = 0.01,
+                  corExpectedX: Optional[int] = None,
+                  corExpectedY: Optional[int] = None,
+                  corExpectedMicId: Optional[int] = None) -> None:
+        """Validate a Mask object (delegates to ``checkParticle``)."""
+        if not isinstance(mask, Mask):
+            self.fail(f"Expected Mask, got {type(mask)}.")
+        self.checkParticle(mask,
+                           classId=classId, micId=micId,
+                           particleId=imageId, imageName=imageName,
+                           samplingRate=samplingRate, dim=dim, hasCTF=hasCTF,
+                           transformShifts=transformShifts, origin=origin,
+                           voltage=voltage,
+                           sphericalAberration=sphericalAberration,
+                           amplitudeContrast=amplitudeContrast,
+                           magnification=magnification,
+                           doseInitial=doseInitial,
+                           dosePerFrame=dosePerFrame,
+                           sRateAngsPixTol=sRateAngsPixTol,
+                           corExpectedX=corExpectedX,
+                           corExpectedY=corExpectedY,
+                           corExpectedMicId=corExpectedMicId)
+
+    def checkVolumeMask(self,
+                        mask3d: VolumeMask,
+                        expectedSRate: Optional[float] = None,
+                        expectedBoxSize: Optional[int] = None,
+                        hasCTF: Optional[bool] = None,
+                        hasHalves: Optional[bool] = None,
+                        expectedOriginShifts: Optional[Union[List[float],
+                                                             Tuple[float, ...]]] = None,
+                        sRateAngsPixTol: float = 0.01) -> None:
+        """Validate a VolumeMask object (delegates to ``checkVolume``)."""
+        if not isinstance(mask3d, VolumeMask):
+            self.fail(f"Expected VolumeMask, got {type(mask3d)}.")
+        self.checkVolume(mask3d, expectedSRate=expectedSRate,
+                         expectedBoxSize=expectedBoxSize,
+                         hasCTF=hasCTF, hasHalves=hasHalves,
+                         expectedOriginShifts=expectedOriginShifts,
+                         sRateAngsPixTol=sRateAngsPixTol)
+
+    # =========================================================================
+    # 3. SET CHECKS
+    # =========================================================================
+
+    def checkImageSet(self,
+                      inImageSet: SetOfImages,
+                      expectedSetSize: int,
+                      expectedSRate: Optional[float] = None,
+                      hasCtf: bool = False,
+                      testAcqObj: Optional[Acquisition] = None,
+                      streamState: Optional[int] = None,
+                      sRateAngsPixTol: float = 0.01) -> None:
+        """Validate a SetOfImages (set-level properties only).
+
+        Items are **not** iterated here; concrete sub-class set methods
+        (``checkSetOfMicrographs``, ``checkSetOfParticles``, etc.) are
+        responsible for item-level validation.
+
+        Parameters
+        ----------
+        inImageSet : SetOfImages
+            Set to validate.
+        expectedSetSize : int
+            Expected number of items.
+        expectedSRate : float, optional
+            Expected sampling rate (A/pix).
+        hasCtf : bool
+            Expected CTF presence flag on the set.
+        testAcqObj : Acquisition, optional
+            Expected acquisition values (set-level).
+        streamState : int, optional
+            Expected stream state.
+        sRateAngsPixTol : float
+            Tolerance for sampling-rate comparisons.
+        """
+        if not isinstance(inImageSet, SetOfImages):
+            self.fail(f"Expected SetOfImages, got {type(inImageSet)}.")
+        self.checkSetGeneralProps(inImageSet,
+                                  expectedSetSize=expectedSetSize,
+                                  expectedSRate=expectedSRate,
+                                  streamState=streamState,
+                                  sRateAngsPixTol=sRateAngsPixTol)
+        self.assertEqual(inImageSet.hasCTF(), hasCtf,
+                         msg=f"SetOfImages CTF flag mismatch: "
+                             f"expected {hasCtf}, got {inImageSet.hasCTF()}")
+        if testAcqObj is not None and inImageSet.hasAcquisition():
+            acq = inImageSet.getAcquisition()
+            self.checkAcquisition(acq,
+                                  voltage=testAcqObj.getVoltage(),
+                                  sphericalAberration=testAcqObj.getSphericalAberration(),
+                                  amplitudeContrast=testAcqObj.getAmplitudeContrast(),
+                                  magnification=testAcqObj.getMagnification())
+
+    def checkVolumeSet(self,
+                       inVolumeSet: SetOfVolumes,
+                       expectedSetSize: int,
+                       expectedSRate: Optional[float] = None,
+                       expectedBoxSize: Optional[int] = None,
+                       hasCtf: bool = False,
+                       hasHalves: bool = False,
+                       testAcqObj: Optional[Acquisition] = None,
+                       checkHeaderApix: bool = True,
+                       streamState: Optional[int] = None,
+                       expectedOriginShifts: Optional[Union[List[float],
+                                                            Tuple[float, ...]]] = None,
+                       sRateAngsPixTol: float = 0.01) -> None:
+        """Validate a SetOfVolumes: set-level props + each item via checkVolume.
+
+        Parameters
+        ----------
+        inVolumeSet : SetOfVolumes
+            Set to validate.
+        expectedSetSize : int
+            Expected number of volumes.
+        expectedSRate : float
+            Expected sampling rate (A/pix).
+        expectedBoxSize : int, optional
+            Expected cubic box size (pixels). Passed to ``checkVolume``.
+        hasCtf : bool
+            Expected CTF flag on the set.
+        hasHalves : bool
+            Expected half-maps flag on the set.
+        testAcqObj : Acquisition, optional
+            Expected acquisition values (set-level).
+        checkHeaderApix : bool
+            Whether to check the voxel size in the MRC header.
+        streamState : int, optional
+            Expected stream state.
+        expectedOriginShifts : list or tuple of float, optional
+            Expected origin shifts for each volume.
+        sRateAngsPixTol : float
+            Tolerance for sampling-rate comparisons.
+        """
+        if not isinstance(inVolumeSet, SetOfVolumes):
+            self.fail(f"Expected SetOfVolumes, got {type(inVolumeSet)}.")
+        self.checkSetGeneralProps(inVolumeSet,
+                                  expectedSetSize=expectedSetSize,
+                                  expectedSRate=expectedSRate,
+                                  streamState=streamState,
+                                  sRateAngsPixTol=sRateAngsPixTol)
+        self.assertEqual(inVolumeSet.hasCTF(), hasCtf,
+                         msg=f"SetOfVolumes CTF flag mismatch: "
+                             f"expected {hasCtf}, got {inVolumeSet.hasCTF()}")
+        if testAcqObj is not None and inVolumeSet.hasAcquisition():
+            self.checkAcquisition(inVolumeSet.getAcquisition(),
+                                  voltage=testAcqObj.getVoltage(),
+                                  sphericalAberration=testAcqObj.getSphericalAberration(),
+                                  amplitudeContrast=testAcqObj.getAmplitudeContrast(),
+                                  magnification=testAcqObj.getMagnification())
+        for vol in inVolumeSet:
+            volId = vol.getObjId()
+            print(f'---> Checking volume (objId={volId})')
+            self.checkVolume(vol, expectedSRate=expectedSRate,
+                             expectedBoxSize=expectedBoxSize,
+                             hasCTF=hasCtf, hasHalves=hasHalves,
+                             expectedOriginShifts=expectedOriginShifts,
+                             sRateAngsPixTol=sRateAngsPixTol,
+                             checkHeaderApix=checkHeaderApix)
+
+    def checkSetOfMicrographs(self,
+                              inMicSet: SetOfMicrographs,
+                              expectedSetSize: int,
+                              expectedSRate: float = None,
+                              hasCtf: bool = False,
+                              testAcqObj: Optional[Acquisition] = None,
+                              streamState: Optional[int] = None,
+                              sRateAngsPixTol: float = 0.01) -> None:
+        """Validate a SetOfMicrographs: set-level props + each item.
+
+        Parameters
+        ----------
+        inMicSet : SetOfMicrographs
+            Set to validate.
+        expectedSetSize : int
+            Expected number of micrographs.
+        expectedSRate : float
+            Expected sampling rate (A/pix).
+        hasCtf : bool
+            Expected CTF flag.
+        testAcqObj : Acquisition, optional
+            Set-level expected acquisition.
+        streamState : int, optional
+            Expected stream state.
+        sRateAngsPixTol : float
+            Tolerance for sampling-rate comparisons.
+        """
+        if not isinstance(inMicSet, SetOfMicrographs):
+            self.fail(f"Expected SetOfMicrographs, got {type(inMicSet)}.")
+        self.checkSetGeneralProps(inMicSet,
+                                  expectedSetSize=expectedSetSize,
+                                  expectedSRate=expectedSRate,
+                                  streamState=streamState,
+                                  sRateAngsPixTol=sRateAngsPixTol)
+        self.assertEqual(inMicSet.hasCTF(), hasCtf,
+                         msg=f"SetOfMicrographs CTF flag mismatch: "
+                             f"expected {hasCtf}, got {inMicSet.hasCTF()}")
+        if testAcqObj is not None and inMicSet.hasAcquisition():
+            self.checkAcquisition(inMicSet.getAcquisition(),
+                                  voltage=testAcqObj.getVoltage(),
+                                  sphericalAberration=testAcqObj.getSphericalAberration(),
+                                  amplitudeContrast=testAcqObj.getAmplitudeContrast(),
+                                  magnification=testAcqObj.getMagnification())
+        for mic in inMicSet:
+            print(f'---> Checking micrograph (objId={mic.getObjId()})')
+            self.checkMicrograph(mic, samplingRate=expectedSRate,
+                                 sRateAngsPixTol=sRateAngsPixTol)
+
+    def checkSetOfMovies(self,
+                         movieSet: SetOfMovies,
+                         expectedSetSize: int,
+                         movieIds: Optional[List[int]] = None,
+                         movieNames: Optional[List[str]] = None,
+                         expectedSRate: float = None,
+                         expectedGain: Optional[str] = None,
+                         expectedDark: Optional[str] = None,
+                         streamState: Optional[int] = None,
+                         sRateAngsPixTol: float = 0.01) -> None:
+        """Validate a SetOfMovies: set-level props + each item.
+
+        Parameters
+        ----------
+        movieSet : SetOfMovies
+            Set to validate.
+        expectedSetSize : int
+            Expected number of movies.
+        movieIds : List[int], optional
+            Expected movie IDs.
+        movieNames : List[str], optional
+            Expected movie names.
+        expectedSRate : float, optional
+            Expected sampling rate (A/pix).
+        expectedGain : str, optional
+            Expected gain reference filename.
+        expectedDark : str, optional
+            Expected dark reference filename.
+        streamState : int, optional
+            Expected stream state.
+        sRateAngsPixTol : float
+            Tolerance for sampling-rate comparisons.
+        """
+        if not isinstance(movieSet, SetOfMovies):
+            self.fail(f"Expected SetOfMovies, got {type(movieSet)}.")
+        self.checkSetGeneralProps(movieSet,
+                                  expectedSetSize=expectedSetSize,
+                                  expectedSRate=expectedSRate,
+                                  streamState=streamState,
+                                  sRateAngsPixTol=sRateAngsPixTol)
+        if expectedGain is not None:
+            self.assertEqual(movieSet.getGain(), expectedGain,
+                             msg=f"Gain reference mismatch: "
+                                 f"expected {expectedGain}, "
+                                 f"got {movieSet.getGain()}")
+        if expectedDark is not None:
+            self.assertEqual(movieSet.getDark(), expectedDark,
+                             msg=f"Dark reference mismatch: "
+                                 f"expected {expectedDark}, "
+                                 f"got {movieSet.getDark()}")
+        for mov in movieSet:
+            print(f'---> Checking movie (objId={mov.getObjId()})')
+            self.checkMovie(mov, samplingRate=expectedSRate,
+                            sRateAngsPixTol=sRateAngsPixTol)
+
+    def checkSetOfParticles(self,
+                            inParticleSet: SetOfParticles,
+                            expectedSetSize: int,
+                            expectedSRate: float,
+                            isSubparticle: bool = False,
+                            hasCtf: bool = False,
+                            testAcqObj: Optional[Acquisition] = None,
+                            streamState: Optional[int] = None,
+                            sRateAngsPixTol: float = 0.01) -> None:
+        """Validate a SetOfParticles: set-level props + each item.
+
+        Parameters
+        ----------
+        inParticleSet : SetOfParticles
+            Set to validate.
+        expectedSetSize : int
+            Expected number of particles.
+        expectedSRate : float
+            Expected sampling rate (A/pix).
+        isSubparticle : bool
+            Expected subparticle flag on the set.
+        hasCtf : bool
+            Expected CTF flag.
+        testAcqObj : Acquisition, optional
+            Set-level expected acquisition.
+        streamState : int, optional
+            Expected stream state.
+        sRateAngsPixTol : float
+            Tolerance for sampling-rate comparisons.
+        """
+        if not isinstance(inParticleSet, SetOfParticles):
+            self.fail(f"Expected SetOfParticles, got {type(inParticleSet)}.")
+        self.checkSetGeneralProps(inParticleSet,
+                                  expectedSetSize=expectedSetSize,
+                                  expectedSRate=expectedSRate,
+                                  streamState=streamState,
+                                  sRateAngsPixTol=sRateAngsPixTol)
+        self.assertEqual(inParticleSet.getIsSubparticles(), isSubparticle,
+                         msg=f"IsSubparticle flag mismatch: "
+                             f"expected {isSubparticle}, "
+                             f"got {inParticleSet.getIsSubparticles()}")
+        self.assertEqual(inParticleSet.hasCTF(), hasCtf,
+                         msg=f"SetOfParticles CTF flag mismatch: "
+                             f"expected {hasCtf}, "
+                             f"got {inParticleSet.hasCTF()}")
+        if testAcqObj is not None and inParticleSet.hasAcquisition():
+            self.checkAcquisition(inParticleSet.getAcquisition(),
+                                  voltage=testAcqObj.getVoltage(),
+                                  sphericalAberration=testAcqObj.getSphericalAberration(),
+                                  amplitudeContrast=testAcqObj.getAmplitudeContrast(),
+                                  magnification=testAcqObj.getMagnification())
+        for particle in inParticleSet:
+            print(f'---> Checking particle (objId={particle.getObjId()})')
+            self.checkParticle(particle,
+                               samplingRate=expectedSRate,
+                               sRateAngsPixTol=sRateAngsPixTol)
+
+    def checkSetOfCoordinates(self,
+                              coordSet: SetOfCoordinates,
+                              expectedSize: int,
+                              expectedBoxSize: Optional[int] = None,
+                              expectedMicSet: Optional[SetOfMicrographs] = None,
+                              expectedCoordList: Optional[List[dict]] = None
+                              ) -> None:
+        """Validate a SetOfCoordinates: set-level props + each item.
+
+        Parameters
+        ----------
+        coordSet : SetOfCoordinates
+            Set to validate.
+        expectedSize : int
+            Expected number of coordinates.
+        expectedBoxSize : int, optional
+            Expected box size (pixels).
+        expectedMicSet : SetOfMicrographs, optional
+            If provided, the micrograph set linked to the coordinates
+            will be verified.
+        expectedCoordList : list of dict, optional
+            Optional per-item expected values. Each dict may have keys
+            ``expectedX``, ``expectedY``, ``expectedMicId``.
+        """
+        if not isinstance(coordSet, SetOfCoordinates):
+            self.fail(f"Expected SetOfCoordinates, got {type(coordSet)}.")
+        self.assertSetSize(coordSet, expectedSize)
+        if expectedBoxSize is not None:
+            self.assertEqual(coordSet.getBoxSize(), expectedBoxSize,
+                             msg=f"Box size mismatch: "
+                                 f"expected {expectedBoxSize}, "
+                                 f"got {coordSet.getBoxSize()}")
+        if expectedMicSet is not None:
+            self.assertEqual(coordSet.getMicrographs().getObjId(),
+                             expectedMicSet.getObjId(),
+                             msg="The micrograph set linked to the "
+                                 "coordinates does not match.")
+        if expectedCoordList:
+            self.assertEqual(len(expectedCoordList), expectedSize,
+                             msg=f"expectedCoordList length "
+                                 f"({len(expectedCoordList)}) must match "
+                                 f"expectedSize ({expectedSize}).")
+            for coord, expected in zip(coordSet.iterCoordinates(),
+                                       expectedCoordList):
+                self.checkCoordinate(coord,
+                                     expectedX=expected.get('expectedX'),
+                                     expectedY=expected.get('expectedY'),
+                                     expectedMicId=expected.get('expectedMicId'))
+        else:
+            for coord in coordSet.iterCoordinates():
+                self.checkCoordinate(coord)
+
+    def checkSetOfClasses(self,
+                          classesSet: SetOfClasses,
+                          expectedSize: int,
+                          hasRepresentatives: bool = True) -> None:
+        """Validate a SetOfClasses: set-level props + representatives.
+
+        Parameters
+        ----------
+        classesSet : SetOfClasses
+            Set to validate.
+        expectedSize : int
+            Expected number of classes.
+        hasRepresentatives : bool
+            Whether representatives are expected.
+        """
+        if not isinstance(classesSet, SetOfClasses):
+            self.fail(f"Expected SetOfClasses, got {type(classesSet)}.")
+        self.assertSetSize(classesSet, expectedSize)
+        self.assertEqual(classesSet.hasRepresentatives(), hasRepresentatives,
+                         msg=f"hasRepresentatives mismatch: "
+                             f"expected {hasRepresentatives}, "
+                             f"got {classesSet.hasRepresentatives()}")
+        if hasRepresentatives:
+            repFiles = []
+            for cls in classesSet:
+                rep = cls.getRepresentative()
+                repFn = rep.getFileName()
+                repFiles.append(repFn)
+                self.assertTrue(exists(repFn),
+                                msg=f"Representative file does not exist: "
+                                    f"{repFn}")
+            self.assertEqual(len(set(repFiles)), expectedSize,
+                             msg="At least one representative filename is "
+                                 "repeated, which should not be possible.")
+
+    def checkSetOfCTF(self,
+                      ctfSet: SetOfCTF,
+                      expectedSize: int,
+                      expectedMicSet: Optional[SetOfMicrographs] = None,
+                      expectedCtfList: Optional[List[dict]] = None) -> None:
+        """Validate a SetOfCTF: set-level props + each CTF.
+
+        Parameters
+        ----------
+        ctfSet : SetOfCTF
+            Set to validate.
+        expectedSize : int
+            Expected number of CTF models.
+        expectedMicSet : SetOfMicrographs, optional
+            If provided, the micrograph set linked to the CTFs is verified.
+        expectedCtfList : list of dict, optional
+            Optional per-item expected values. Each dict may have keys
+            ``defocusU``, ``defocusV``, ``defocusAngle``, ``resolution``,
+            ``phaseShift``.
+        """
+        if not isinstance(ctfSet, SetOfCTF):
+            self.fail(f"Expected SetOfCTF, got {type(ctfSet)}.")
+        self.assertSetSize(ctfSet, expectedSize)
+        micPtr = ctfSet.getMicrographs()
+        self.assertIsNotNone(micPtr,
+                             msg="SetOfCTF has no associated micrographs.")
+        if expectedMicSet is not None:
+            self.assertEqual(micPtr.getObjId(), expectedMicSet.getObjId(),
+                             msg="The micrograph set linked to the CTFs "
+                                 "does not match.")
+        for ctf in ctfSet:
+            self.assertNotEqual(ctf.getDefocusU(), -999,
+                                msg=f"CTF id={ctf.getObjId()} has wrong "
+                                    f"defocus marker (-999) -- parsing "
+                                    f"likely failed.")
+        if expectedCtfList:
+            self.assertEqual(len(expectedCtfList), expectedSize,
+                             msg=f"expectedCtfList length "
+                                 f"({len(expectedCtfList)}) must match "
+                                 f"expectedSize ({expectedSize}).")
+            for ctf, expected in zip(ctfSet, expectedCtfList):
+                self.checkCTF(ctf,
+                              defocusU=expected['defocusU'],
+                              defocusV=expected['defocusV'],
+                              defocusAngle=expected['defocusAngle'],
+                              resolution=expected.get('resolution'),
+                              phaseShift=expected.get('phaseShift'))
+
+    # =========================================================================
+    # 4. STATIC HELPERS
+    # =========================================================================
+
+    @staticmethod
+    def getMinAndMaxCoordValuesFromSet(inSet):
+        """Return extreme coordinate values from a set.
+
+        Works with ``SetOfCoordinates`` or ``SetOfParticles`` (in which
+        case ``getCoordinates()`` is called internally).
+
+        Returns
+        -------
+        numpy.ndarray
+            ``[x_min, x_max, y_min, y_max]``.
+        """
+        if not isinstance(inSet, SetOfCoordinates):
+            inSet = inSet.getCoordinates()
+        dataDict = inSet.aggregate(['MAX'], '_micId', ['_x', '_y'])
+        xcoords, ycoords = zip(*[(d['_x'], d['_y']) for d in dataDict])
+        return np.array([min(xcoords), max(xcoords),
+                         min(ycoords), max(ycoords)])
