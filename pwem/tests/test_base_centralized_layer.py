@@ -35,20 +35,6 @@ Methods are organized into three sections:
     1. AUXILIARY METHODS -- shared validation utilities.
     2. INDIVIDUAL OBJECT CHECKS -- per-type validation of a single object.
     3. SET CHECKS -- set-level validation + iteration over items.
-
-Design rule
------------
-Each method tests **one level** of the hierarchy:
-
-- Set methods call ``checkSetGeneralProps`` for aggregate properties (size,
-  sampling rate, stream state, persistence) and then iterate over items
-  calling the appropriate **individual** check.
-- Sets **never** delegate to another set check (e.g. ``checkSetOfParticles``
-  does **not** call ``checkImageSet``).
-- Individual object checks **do** delegate to parent checks where the IS-A
-  relation holds (e.g. ``checkParticle`` calls ``checkImage``).
-
-This avoids redundant checking of the same properties at multiple levels.
 """
 from os.path import exists
 from typing import List, Optional, Tuple, Union
@@ -527,7 +513,6 @@ class TestBaseCentralizedLayer(BaseTest):
                         mic: Micrograph,
                         micName: Optional[str] = None,
                         micId: Optional[int] = None,
-                        imageName: Optional[str] = None,
                         samplingRate: Optional[float] = None,
                         dim: Optional[Tuple[int, int, int]] = None,
                         hasCTF: Optional[bool] = None,
@@ -554,7 +539,7 @@ class TestBaseCentralizedLayer(BaseTest):
                              msg=f"Micrograph name mismatch: "
                                  f"expected {micName}, got {mic.getMicName()}")
 
-        self.checkImage(mic, imageId=micId, imageName=imageName,
+        self.checkImage(mic, imageId=micId,
                         samplingRate=samplingRate, dim=dim, hasCTF=hasCTF,
                         transformShifts=transformShifts, origin=origin,
                         voltage=voltage,
@@ -572,6 +557,14 @@ class TestBaseCentralizedLayer(BaseTest):
                    samplingRate: Optional[float] = None,
                    voltage: Optional[float] = None,
                    dim: Optional[Tuple[int, int, int]] = None,
+                   hasCTF: Optional[bool] = None,
+                   transformShifts: Optional[Tuple[float, float, float]] = None,
+                   origin: Optional[Tuple[float, float, float]] = None,
+                   sphericalAberration: Optional[float] = None,
+                   amplitudeContrast: Optional[float] = None,
+                   magnification: Optional[float] = None,
+                   doseInitial: Optional[float] = None,
+                   dosePerFrame: Optional[float] = None,
                    framesRange: Optional[Tuple[int, int, int]] = None,
                    numFrames: Optional[int] = None,
                    alignment: Optional[MovieAlignment] = None,
@@ -579,7 +572,7 @@ class TestBaseCentralizedLayer(BaseTest):
                    alignmentLast: Optional[int] = None,
                    alignmentXShifts: Optional[List[float]] = None,
                    alignmentYShifts: Optional[List[float]] = None,
-                   sRateAngsPixTol: float = 0.01) -> None:
+                   sRateAngsPixTol: Optional[float] = None) -> None:# 0.01) -> None:
         """Validate a Movie object.
 
         Parameters
@@ -612,17 +605,22 @@ class TestBaseCentralizedLayer(BaseTest):
         if not isinstance(mov, Movie):
             self.fail(f"Expected Movie, got {type(mov)}.")
 
-        # Check inherited Image properties
-        self.checkImage(mov, samplingRate=samplingRate, voltage=voltage,
-                        dim=dim, sRateAngsPixTol=sRateAngsPixTol)
+        # Check inherited Micrograph properties
+        self.checkMicrograph(mov, micId=movieId, micName=movieName,
+                             samplingRate=samplingRate, voltage=voltage,
+                             hasCTF=hasCTF,
+                             transformShifts=transformShifts, origin=origin,
+                             sphericalAberration=sphericalAberration,
+                             amplitudeContrast=amplitudeContrast,
+                             magnification=magnification,
+                             doseInitial=doseInitial,
+                             dosePerFrame=dosePerFrame,
+                             sRateAngsPixTol=sRateAngsPixTol)
 
-        self.assertEqual(mov.getMovieId(), movieId,
-                         msg=f"Movie ID mismatch: "
-                             f"expected {movieId}, got {mov.getMovieId()}")
-
-        self.assertEqual(mov.getMovieName(), movieName,
-                         msg=f"Movie name mismatch: "
-                             f"expected {movieName}, got {mov.getMovieName()}")
+        if dim is not None:
+            self.assertEqual(mov.getDimensions(), dim,
+                             msg=f"Dimensions mismatch: "
+                                 f"expected {dim}, got {mov.getDimensions()}")
 
         # FramesRange
         fr = mov.getFramesRange()
@@ -675,7 +673,8 @@ class TestBaseCentralizedLayer(BaseTest):
                       sRateAngsPixTol: float = 0.01,
                       corExpectedX: Optional[int] = None,
                       corExpectedY: Optional[int] = None,
-                      corExpectedMicId: Optional[int] = None) -> None:
+                      corExpectedMicId: Optional[int] = None,
+                      checkHeaderApix: Optional[bool] = None) -> None:
         """Validate a Particle object.
 
         In addition to the ``checkImage`` parameters documented above,
@@ -696,7 +695,7 @@ class TestBaseCentralizedLayer(BaseTest):
                                  f"expected {micId}, got {particle.getMicId()}")
 
         # Inherited Image attributes
-        self.checkImage(particle, imageId=particleId, imageName=imageName,
+        self.checkImage(particle, imageName=imageName,
                         samplingRate=samplingRate, dim=dim, hasCTF=hasCTF,
                         transformShifts=transformShifts, origin=origin,
                         voltage=voltage,
@@ -705,7 +704,8 @@ class TestBaseCentralizedLayer(BaseTest):
                         magnification=magnification,
                         doseInitial=doseInitial,
                         dosePerFrame=dosePerFrame,
-                        sRateAngsPixTol=sRateAngsPixTol)
+                        sRateAngsPixTol=sRateAngsPixTol,
+                        checkHeaderApix=checkHeaderApix)
 
         # Associated coordinate
         coord = particle.getCoordinate()
@@ -723,8 +723,18 @@ class TestBaseCentralizedLayer(BaseTest):
                     hasHalves: Optional[bool] = None,
                     expectedOriginShifts: Optional[Union[List[float],
                                                          Tuple[float, ...]]] = None,
-                    sRateAngsPixTol: float = 0.01,
-                    checkHeaderApix: bool = True) -> None:
+                    volumeId: Optional[int] = None,
+                    volumeName: Optional[str] = None,
+                    transformShifts: Optional[Tuple[float, float, float]] = None,
+                    origin: Optional[Tuple[float, float, float]] = None,
+                    voltage: Optional[float] = None,
+                    sphericalAberration: Optional[float] = None,
+                    amplitudeContrast: Optional[float] = None,
+                    magnification: Optional[float] = None,
+                    doseInitial: Optional[float] = None,
+                    dosePerFrame: Optional[float] = None,
+                    sRateAngsPixTol: Optional[float] = None, # 0.01,
+                    checkHeaderApix: Optional[bool] = None) -> None: #True) -> None:
         """Validate a Volume object.
 
         Parameters
@@ -758,9 +768,22 @@ class TestBaseCentralizedLayer(BaseTest):
         origin = tuple(expectedOriginShifts) \
             if expectedOriginShifts is not None else None
 
+        self.assertEqual(vol.getClassId(), volumeId,
+                         msg=f"Volume ID mismatch: "
+                             f"expected {volumeId}, got {vol.getClassId()}")
+
+
         # Check inherited Image properties
-        self.checkImage(vol, samplingRate=expectedSRate, dim=dim,
+        self.checkImage(vol, imageName=volumeName,
+                        samplingRate=expectedSRate, dim=dim,
+                        transformShifts=transformShifts,
                         hasCTF=hasCTF, origin=origin,
+                        voltage=voltage,
+                        sphericalAberration=sphericalAberration,
+                        amplitudeContrast=amplitudeContrast,
+                        magnification=magnification,
+                        doseInitial=doseInitial,
+                        dosePerFrame=dosePerFrame,
                         sRateAngsPixTol=sRateAngsPixTol,
                         checkHeaderApix=checkHeaderApix)
 
@@ -894,20 +917,39 @@ class TestBaseCentralizedLayer(BaseTest):
                         hasHalves: Optional[bool] = None,
                         expectedOriginShifts: Optional[Union[List[float],
                                                              Tuple[float, ...]]] = None,
+                        volumeId: Optional[int] = None,
+                        volumeName: Optional[str] = None,
+                        transformShifts: Optional[Tuple[float, float, float]] = None,
+                        origin: Optional[Tuple[float, float, float]] = None,
+                        voltage: Optional[float] = None,
+                        sphericalAberration: Optional[float] = None,
+                        amplitudeContrast: Optional[float] = None,
+                        magnification: Optional[float] = None,
+                        doseInitial: Optional[float] = None,
+                        dosePerFrame: Optional[float] = None,
+                        checkHeaderApix: Optional[bool] = None,
                         sRateAngsPixTol: float = 0.01) -> None:
-        """Validate a VolumeMask object (delegates to ``checkVolume``)."""
+        """Validate a VolumeMask object (delegates to checkVolume)."""
         if not isinstance(mask3d, VolumeMask):
             self.fail(f"Expected VolumeMask, got {type(mask3d)}.")
         self.checkVolume(mask3d, expectedSRate=expectedSRate,
                          expectedBoxSize=expectedBoxSize,
                          hasCTF=hasCTF, hasHalves=hasHalves,
                          expectedOriginShifts=expectedOriginShifts,
+                         volumeId=volumeId, volumeName=volumeName,
+                         transformShifts=transformShifts, origin=origin,
+                         voltage=voltage,
+                         sphericalAberration=sphericalAberration,
+                         amplitudeContrast=amplitudeContrast,
+                         magnification=magnification,
+                         doseInitial=doseInitial,
+                         dosePerFrame=dosePerFrame,
+                         checkHeaderApix=checkHeaderApix,
                          sRateAngsPixTol=sRateAngsPixTol)
 
     # =========================================================================
     # 3. SET CHECKS
     # =========================================================================
-
     def checkImageSet(self,
                       inImageSet: SetOfImages,
                       expectedSetSize: int,
@@ -916,12 +958,25 @@ class TestBaseCentralizedLayer(BaseTest):
                       testAcqObj: Optional[Acquisition] = None,
                       streamState: Optional[int] = None,
                       sRateAngsPixTol: float = 0.01) -> None:
+        self._checkImageSet(inImageSet, expectedSetSize, expectedSRate,
+                            hasCtf, testAcqObj, streamState, sRateAngsPixTol)
+        
+        for img in inImageSet:
+            imgId = img.getObjId()
+            print(f'---> Checking volume (objId={imgId})')
+            self.checkImage(img, expectedSRate=expectedSRate,
+                             hasCTF=hasCtf,
+                             sRateAngsPixTol=sRateAngsPixTol)
+
+    def _checkImageSet(self,
+                      inImageSet: SetOfImages,
+                      expectedSetSize: int,
+                      expectedSRate: Optional[float] = None,
+                      hasCtf: bool = False,
+                      testAcqObj: Optional[Acquisition] = None,
+                      streamState: Optional[int] = None,
+                      sRateAngsPixTol: float = 0.01) -> None:
         """Validate a SetOfImages (set-level properties only).
-
-        Items are **not** iterated here; concrete sub-class set methods
-        (``checkSetOfMicrographs``, ``checkSetOfParticles``, etc.) are
-        responsible for item-level validation.
-
         Parameters
         ----------
         inImageSet : SetOfImages
@@ -968,7 +1023,13 @@ class TestBaseCentralizedLayer(BaseTest):
                        checkHeaderApix: bool = True,
                        streamState: Optional[int] = None,
                        expectedOriginShifts: Optional[Union[List[float],
-                                                            Tuple[float, ...]]] = None,
+                                                                Tuple[float, ...]]] = None,
+                       voltage: Optional[float] = None,
+                       sphericalAberration: Optional[float] = None,
+                       amplitudeContrast: Optional[float] = None,
+                       magnification: Optional[float] = None,
+                       doseInitial: Optional[float] = None,
+                       dosePerFrame: Optional[float] = None,
                        sRateAngsPixTol: float = 0.01) -> None:
         """Validate a SetOfVolumes: set-level props + each item via checkVolume.
 
@@ -999,11 +1060,13 @@ class TestBaseCentralizedLayer(BaseTest):
         """
         if not isinstance(inVolumeSet, SetOfVolumes):
             self.fail(f"Expected SetOfVolumes, got {type(inVolumeSet)}.")
-        self.checkSetGeneralProps(inVolumeSet,
-                                  expectedSetSize=expectedSetSize,
-                                  expectedSRate=expectedSRate,
-                                  streamState=streamState,
-                                  sRateAngsPixTol=sRateAngsPixTol)
+        self._checkImageSet(inVolumeSet,
+                            expectedSetSize=expectedSetSize,
+                            expectedSRate=expectedSRate,
+                            hasCtf=hasCtf,
+                            testAcqObj=testAcqObj,
+                            streamState=streamState,
+                            sRateAngsPixTol=sRateAngsPixTol)
         self.assertEqual(inVolumeSet.hasCTF(), hasCtf,
                          msg=f"SetOfVolumes CTF flag mismatch: "
                              f"expected {hasCtf}, got {inVolumeSet.hasCTF()}")
@@ -1014,12 +1077,19 @@ class TestBaseCentralizedLayer(BaseTest):
                                   amplitudeContrast=testAcqObj.getAmplitudeContrast(),
                                   magnification=testAcqObj.getMagnification())
         for vol in inVolumeSet:
-            volId = vol.getObjId()
-            print(f'---> Checking volume (objId={volId})')
-            self.checkVolume(vol, expectedSRate=expectedSRate,
+            print(f'---> Checking volume (objId={vol.getObjId()})')
+            self.checkVolume(vol,
+                             expectedSRate=expectedSRate,
                              expectedBoxSize=expectedBoxSize,
-                             hasCTF=hasCtf, hasHalves=hasHalves,
+                             hasCTF=hasCtf,
+                             hasHalves=hasHalves,
                              expectedOriginShifts=expectedOriginShifts,
+                             voltage=voltage,
+                             sphericalAberration=sphericalAberration,
+                             amplitudeContrast=amplitudeContrast,
+                             magnification=magnification,
+                             doseInitial=doseInitial,
+                             dosePerFrame=dosePerFrame,
                              sRateAngsPixTol=sRateAngsPixTol,
                              checkHeaderApix=checkHeaderApix)
 
@@ -1076,11 +1146,18 @@ class TestBaseCentralizedLayer(BaseTest):
                          expectedSetSize: int,
                          movieIds: Optional[List[int]] = None,
                          movieNames: Optional[List[str]] = None,
-                         expectedSRate: float = None,
+                         dim: Optional[Tuple[int, int, int]] = None,
+                         expectedSRate: Optional[float] = None,
                          expectedGain: Optional[str] = None,
                          expectedDark: Optional[str] = None,
                          streamState: Optional[int] = None,
-                         sRateAngsPixTol: float = 0.01) -> None:
+                         sRateAngsPixTol: float = 0.01,
+                         voltage: Optional[float] = None,
+                         sphericalAberration: Optional[float] = None,
+                         amplitudeContrast: Optional[float] = None,
+                         magnification: Optional[float] = None,
+                         doseInitial: Optional[float] = None,
+                         dosePerFrame: Optional[float] = None) -> None:
         """Validate a SetOfMovies: set-level props + each item.
 
         Parameters
@@ -1123,8 +1200,14 @@ class TestBaseCentralizedLayer(BaseTest):
                                  f"got {movieSet.getDark()}")
         for mov in movieSet:
             print(f'---> Checking movie (objId={mov.getObjId()})')
-            self.checkMovie(mov, samplingRate=expectedSRate,
-                            sRateAngsPixTol=sRateAngsPixTol)
+            self.checkMovie(mov, dim=dim, samplingRate=expectedSRate,
+                            sRateAngsPixTol=sRateAngsPixTol,
+                            voltage=voltage,
+                            sphericalAberration=sphericalAberration,
+                            amplitudeContrast=amplitudeContrast,
+                            magnification=magnification,
+                            doseInitial=doseInitial,
+                            dosePerFrame=dosePerFrame)
 
     def checkSetOfParticles(self,
                             inParticleSet: SetOfParticles,
