@@ -171,6 +171,7 @@ class TestImportVolumes(TestImportBase):
 
         self.checkVolumeSet(
             inVolumeSet=prot3.outputVolumes,
+            expectedSetSize=2,
             expectedOriginShifts=[-67.2, -67.2, -67.2]
         )
 
@@ -200,6 +201,7 @@ class TestImportVolumes(TestImportBase):
 
         self.checkVolumeSet(
             inVolumeSet=prot4.outputVolumes,
+            expectedSetSize=2,
             expectedOriginShifts=[-16.8, -33.6, -50.4]
         )
 
