@@ -344,6 +344,11 @@ Format may be PDB or MMCIF"""
                       pointerClass='Volume',
                       allowsNull=True,
                       help='Associate this volume to the mmCIF file.')
+        form.addParam('skipChimera', params.BooleanParam, default=False,
+                      condition='inputPdbData == IMPORT_FROM_FILES',
+                      expertLevel=params.LEVEL_ADVANCED,
+                      label="Skip ChimeraX conversion: ",
+                      help='Skip ChimeraX conversion to CIF file')
 
     def _insertAllSteps(self):
         if self.inputPdbData == self.IMPORT_FROM_ID:
@@ -397,13 +402,19 @@ Format may be PDB or MMCIF"""
 
         baseName = basename(atomStructPath)
         localPath = abspath(self._getExtraPath(baseName))
-
         chimeraPlugin = self.__getChimeraPlugin()
-        if chimeraPlugin:
+        if chimeraPlugin and not self.skipChimera.get():
             localCIFPath = localPath[:-4] + ".cif"
             try:
+                cmdPath = abspath(self._getExtraPath("command.cxc"))
                 localPath = localPath[:-4] + localPath[-4:].replace(".pdb", ".cif")
-                args = f'--nogui --cmd "open {atomStructPath}; save {localPath}; exit"'
+                f = open(cmdPath, "w")
+                f.write(f"open {atomStructPath}\n")
+                f.write(f"save {localPath}\n")
+                f.write("exit\n")
+                f.close()
+                # localPath = localPath[:-4] + localPath[-4:].replace(".pdb", ".cif")
+                args = f'--nogui --script {cmdPath}'
                 chimeraPlugin.runChimeraProgram(chimeraPlugin.getProgram(), args)
             except Exception as e:
                 logger.warning(f"Normal ChimeraX conversion failed: {e}")
