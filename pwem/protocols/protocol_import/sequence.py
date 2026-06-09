@@ -448,7 +448,7 @@ class ProtImportSequence(ProtImportFiles):
                        isAminoacids=(self.inputSequence ==
                                      Alphabet.AMINOACIDS),
                        id=self.id, description=self.description)
-        if self.fileName:
+        if hasattr(self, 'fileName') and self.fileName is not None:
             seq.setFileName(self.fileName)
         outputs = {'outputSequence': seq}
         self._defineOutputs(**outputs)
