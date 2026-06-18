@@ -29,16 +29,21 @@ import sys
 import os
 import re
 
-from os.path import exists, isdir
+from os.path import exists, isdir, join
 import time
 from datetime import timedelta, datetime
+from pathlib import Path
+
+import yaml
 
 import pyworkflow.utils as pwutils
 import pyworkflow.protocol.params as params
-from pwem import cleanFileName, Config
+from pwem import (cleanFileName, Config, genExecStatusDir, genDoneFile,
+                  genReadyFile, getExecStatusDir)
 
 from pwem.emlib.image import ImageHandler
 from pwem.objects import Acquisition
+from pyworkflow.utils import removeBaseExt
 
 from .base import ProtImportFiles
 
@@ -49,10 +54,19 @@ class ProtImportImages(ProtImportFiles):
     # for example, if set to SetOfParticles, this will the output classes
     # It is also assumed that a function with the name _createSetOfParticles
     # exists in the EMProtocol base class
-    _outputClassName = 'None'  
+    _outputClassName = 'None'
     # If set to True, each binary file will be inspected to
     # see if it is a binary stack containing more items
     _checkStacks = True
+
+    # SPA data-model attributes exported to the YAML sidecar metadata file
+    # when the output set is initialized (see _genSidecarFile). Most belong
+    # to the output set itself; '_framesRange' belongs to each Movie item, so
+    # it is read from the first appended image instead of the set.
+    _sidecarSetAttrs = ['_firstFramesRange', '_firstDim', '_samplingRate',
+                        '_acquisition._voltage', '_acquisition._doseInitial',
+                        '_acquisition._dosePerFrame', '_gainFile', '_darkFile']
+    _sidecarItemAttrs = ['_framesRange']
         
     # --------------------------- DEFINE param functions ----------------------
 
@@ -102,7 +116,7 @@ class ProtImportImages(ProtImportFiles):
             funcName = 'importImagesStreamStep' 
         else:
             funcName = 'importImagesStep'
-        
+
         self._insertFunctionStep(funcName, self.getPattern(),
                                  self.voltage.get(),
                                  self.sphericalAberration.get(),
@@ -115,6 +129,8 @@ class ProtImportImages(ProtImportFiles):
         """ Copy images matching the filename pattern
         Register other parameters.
         """
+        genExecStatusDir(self)
+
         self.info("Using pattern: '%s'" % pattern)
         
         createSetFunc = getattr(self, '_create' + self._outputClassName)
@@ -169,6 +185,7 @@ class ProtImportImages(ProtImportFiles):
                 self._addImageToSet(img, imgSet)
 
             outFiles.append(dst)
+            genReadyFile(self, removeBaseExt(dst))
             
             sys.stdout.write("\rImported %d/%d\n" % (i+1, self.numberOfFiles))
             sys.stdout.flush()
@@ -179,7 +196,7 @@ class ProtImportImages(ProtImportFiles):
         outputSet = self._getOutputName()
         args[outputSet] = imgSet
         self._defineOutputs(**args)
-        
+        genDoneFile(self)
         return outFiles
 
     def importImagesStreamStep(self, pattern, voltage, sphericalAberration,
@@ -187,21 +204,25 @@ class ProtImportImages(ProtImportFiles):
         """ Copy images matching the filename pattern
         Register other parameters.
         """
+        genExecStatusDir(self)
+
         self.info("Using pattern: '%s'" % pattern)
 
         imgSet = self._getOutputSet() if self.isContinued() else None
         
         self.importedFiles = set()
+        isContinuedRun = False
         if imgSet is None:
             createSetFunc = getattr(self, '_create' + self._outputClassName)
             imgSet = createSetFunc()
         elif imgSet.getSize() > 0:  # in case of continue
+            isContinuedRun = True
             imgSet.loadAllProperties()
             self._fillImportedFiles(imgSet)
             imgSet.enableAppend()
             if self.stopStreamingFileExists():
                 os.remove(self._getStopStreamingFilename()) # Remove stop streaming file if the import was not truly finished
-        
+
         pointerExcludedMovs = getattr(self, 'moviesToExclude', None)
         if pointerExcludedMovs is not None:
             excludedMovs = pointerExcludedMovs.get()
@@ -212,6 +233,12 @@ class ProtImportImages(ProtImportFiles):
         self.fillAcquisition(acquisition)
         # Call a function that should be implemented by each subclass
         self.setSamplingRate(imgSet)
+        # On a continued run the set already has its first item, so the
+        # first-append trigger in _addImageToSet won't fire. Refresh the
+        # sidecar here, after acquisition/sampling rate have been re-applied,
+        # so the metadata reflects any edited parameters.
+        if isContinuedRun:
+            self._genSidecarFile(imgSet, imgSet.getFirstItem())
         outFiles = [imgSet.getFileName()]
         imgh = ImageHandler()
         img = imgSet.ITEM_TYPE()
@@ -225,7 +252,6 @@ class ProtImportImages(ProtImportFiles):
         # this is only used when creating stacks from frame files
         self.createdStacks = set()
 
-        i = 0
         lastDetectedChange = datetime.now()
 
         # Ignore the timeout variables if we are not really in streaming mode
@@ -281,6 +307,7 @@ class ProtImportImages(ProtImportFiles):
                     self._addImageToSet(img, imgSet)
 
                 outFiles.append(dst)
+                genReadyFile(self, removeBaseExt(dst))
                 self.debug('After append. Files: %d' % len(outFiles))
 
             if someAdded:
@@ -319,7 +346,7 @@ class ProtImportImages(ProtImportFiles):
                               state=imgSet.STREAM_CLOSED)
 
         self._cleanUp()
-
+        genDoneFile(self)
         return outFiles
 
     @classmethod
@@ -472,12 +499,59 @@ class ProtImportImages(ProtImportFiles):
          some special condition to read dimensions such as .txt or compressed
          movie files.
         """
-        if imgSet.isEmpty():
+        # Detect the first element BEFORE appending. The first append is what
+        # populates the set-level attributes (e.g. _firstDim/_firstFramesRange
+        # via SetOfImages.append -> _setFirstDim), so the sidecar must be
+        # generated right after it.
+        isFirstImage = imgSet.isEmpty()
+        if isFirstImage:
             self._setupFirstImage(img, imgSet)
         imgSet.append(img)
+        if isFirstImage:
+            self._genSidecarFile(imgSet, img)
 
     def _setupFirstImage(self, img, imgSet):
         pass
+
+    @staticmethod
+    def _getSidecarValue(obj, dottedKey):
+        """ Safely resolve a (possibly nested) attribute by its dotted name
+        and return its scalar value. Returns None when the attribute does not
+        exist on the given object (e.g. _gainFile only exists on SetOfMovies).
+        """
+        attr = obj
+        for partName in dottedKey.split('.'):
+            attr = getattr(attr, partName, None)
+            if attr is None:
+                return None
+        try:
+            return attr.get() if hasattr(attr, 'get') else attr
+        except Exception:
+            return None
+
+    def _genSidecarFile(self, imgSet, firstImg):
+        """ Generate a YAML sidecar metadata file the first time the output
+        set is initialized (i.e. when its first item is appended, which is the
+        action that updates the set's attributes).
+
+        It exports a selection of SPA data-model attributes so downstream
+        live/streaming processing (e.g. composing tilt-series for ScipionTomo
+        in a PACE acquisition) can read the set metadata without opening the
+        set DB. The file is written to the protocol's exec_status directory
+        following the '[ClassName].sidecar.yaml' pattern.
+        """
+        metadata = {}
+        for key in self._sidecarSetAttrs:
+            metadata[key] = self._getSidecarValue(imgSet, key)
+        for key in self._sidecarItemAttrs:
+            metadata[key] = self._getSidecarValue(firstImg, key)
+
+        sidecarFn = join(getExecStatusDir(self),
+                         '%s.sidecar.yaml' % type(imgSet).__name__)
+        with open(sidecarFn, 'w') as f:
+            yaml.safe_dump(metadata, f, default_flow_style=False,
+                           sort_keys=False)
+        self.info("Generated sidecar metadata file: %s" % sidecarFn)
 
     def iterNewInputFiles(self):
         """ Iterate over input files that have not been imported.

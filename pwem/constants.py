@@ -232,3 +232,8 @@ class LoopActions(enum.Enum):
     NONE = 1
     CONTINUE = 2
     BREAK = 3
+
+# -------------------------- Streaming variables -------------------------------
+EXEC_STATUS_DIR = 'exec_status'
+READY_EXT = '.ready'
+PROTOCOL_DONE = 'DONE'

@@ -27,6 +27,12 @@
 from glob import glob
 from os.path import join, dirname, basename
 import logging
+from pathlib import Path
+
+from pwem import EXEC_STATUS_DIR, READY_EXT, PROTOCOL_DONE
+from pyworkflow.protocol import Protocol
+from pyworkflow.utils import makePath
+
 logger = logging.getLogger(__name__)
 import pyworkflow.utils as pwutils
 import pwem
@@ -206,3 +212,32 @@ def fnMatching(itemId, filesDict, objType='Micrograph'):
         logger.debug(finalMessage)
 
     return longestItemId, longestItem
+
+
+# -------------------------- Streaming utilities -------------------------------
+def getExecStatusDir(prot: Protocol) -> str:
+    return prot._getPath(EXEC_STATUS_DIR)
+
+
+def genExecStatusDir(prot: Protocol) -> None:
+    makePath(getExecStatusDir(prot))
+
+
+def getReadyFile(prot: Protocol, imgId: str) -> str:
+    return join(getExecStatusDir(prot), f'{imgId}{READY_EXT}')
+
+
+def genReadyFile(prot: Protocol, imgId: str) -> None:
+    Path(getReadyFile(prot, imgId)).touch()
+
+
+def getDoneFile(prot: Protocol) -> str:
+    return join(getExecStatusDir(prot), PROTOCOL_DONE)
+
+
+def genDoneFile(prot: Protocol) -> None:
+    Path(getDoneFile(prot)).touch()
+
+
+def isStreamClosed(prot: Protocol) -> bool:
+    return Path(getDoneFile(prot)).exists()
