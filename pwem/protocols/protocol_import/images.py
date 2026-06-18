@@ -24,27 +24,20 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-
 import sys
 import os
 import re
-
-from os.path import exists, isdir, join
+from os.path import exists, isdir, join, basename
 import time
 from datetime import timedelta, datetime
-from pathlib import Path
-
 import yaml
-
 import pyworkflow.utils as pwutils
 import pyworkflow.protocol.params as params
 from pwem import (cleanFileName, Config, genExecStatusDir, genDoneFile,
                   genReadyFile, getExecStatusDir)
-
 from pwem.emlib.image import ImageHandler
 from pwem.objects import Acquisition
 from pyworkflow.utils import removeBaseExt
-
 from .base import ProtImportFiles
 
 
@@ -185,7 +178,7 @@ class ProtImportImages(ProtImportFiles):
                 self._addImageToSet(img, imgSet)
 
             outFiles.append(dst)
-            genReadyFile(self, removeBaseExt(dst))
+            genReadyFile(self, basename(dst))
             
             sys.stdout.write("\rImported %d/%d\n" % (i+1, self.numberOfFiles))
             sys.stdout.flush()
@@ -307,7 +300,7 @@ class ProtImportImages(ProtImportFiles):
                     self._addImageToSet(img, imgSet)
 
                 outFiles.append(dst)
-                genReadyFile(self, removeBaseExt(dst))
+                genReadyFile(self, basename(dst))
                 self.debug('After append. Files: %d' % len(outFiles))
 
             if someAdded:

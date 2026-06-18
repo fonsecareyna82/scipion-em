@@ -28,6 +28,7 @@ from glob import glob
 from os.path import join, dirname, basename
 import logging
 from pathlib import Path
+from typing import List
 
 from pwem import EXEC_STATUS_DIR, READY_EXT, PROTOCOL_DONE
 from pyworkflow.protocol import Protocol
@@ -237,7 +238,3 @@ def getDoneFile(prot: Protocol) -> str:
 
 def genDoneFile(prot: Protocol) -> None:
     Path(getDoneFile(prot)).touch()
-
-
-def isStreamClosed(prot: Protocol) -> bool:
-    return Path(getDoneFile(prot)).exists()

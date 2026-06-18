@@ -29,6 +29,12 @@ This modules contains basic hierarchy
 for EM data objects like: Image, SetOfImage and others
 """
 import logging
+import typing
+from glob import glob
+from os.path import join, dirname, basename
+from pathlib import Path
+
+from pyworkflow.utils import removeBaseExt
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +47,7 @@ from pyworkflow.object import (Object, Float, Integer, String,
                                OrderedDict, CsvList, Boolean, Set, Pointer,
                                Scalar)
 from pwem.constants import (NO_INDEX, ALIGN_NONE, ALIGN_2D, ALIGN_3D,
-                            ALIGN_PROJ, ALIGNMENTS, LoopActions)
+                            ALIGN_PROJ, ALIGNMENTS, LoopActions, EXEC_STATUS_DIR, READY_EXT, PROTOCOL_DONE)
 
 
 class EMObject(Object):
@@ -1329,6 +1335,10 @@ class EMSet(Set, EMObject):
 
     def getFiles(self):
         return Set.getFiles(self)
+
+    def isStreamClosed(self) -> bool:
+        doneFile = join(self._mapperPath.get(), EXEC_STATUS_DIR, PROTOCOL_DONE)
+        return Path(doneFile).exists()
 
 
 class SetOfImages(EMSet):
@@ -2720,6 +2730,11 @@ class SetOfMovies(SetOfMicrographsBase):
         self._gainFile.set(other.getGain())
         self._darkFile.set(other.getDark())
         self._firstFramesRange.set(other.getFramesRange())
+
+    def getProcessedItems(self) -> typing.Set[str]:
+        inSetProtDir = str(dirname(self._mapperPath.get()))
+        readyFiles = glob(join(inSetProtDir, EXEC_STATUS_DIR, f'*{READY_EXT}'))
+        return set([basename(readyFile).replace(READY_EXT, '') for readyFile in readyFiles])
 
 
 class MovieParticle(Particle):
