@@ -236,4 +236,5 @@ class LoopActions(enum.Enum):
 # -------------------------- Streaming variables -------------------------------
 EXEC_STATUS_DIR = 'status'
 READY_EXT = '.ready'
+SIDECAR_EXT = '.sidecar'
 PROTOCOL_DONE = 'DONE'

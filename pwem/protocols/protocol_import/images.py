@@ -34,7 +34,7 @@ import yaml
 import pyworkflow.utils as pwutils
 import pyworkflow.protocol.params as params
 from pwem import (cleanFileName, Config, genExecStatusDir, genDoneFile,
-                  genReadyFile, getExecStatusDir)
+                  genReadyFile, getExecStatusDir, SIDECAR_EXT)
 from pwem.emlib.image import ImageHandler
 from pwem.objects import Acquisition
 from pyworkflow.utils import removeBaseExt
@@ -540,7 +540,7 @@ class ProtImportImages(ProtImportFiles):
             metadata[key] = self._getSidecarValue(firstImg, key)
 
         sidecarFn = join(getExecStatusDir(self),
-                         '%s.sidecar.yaml' % type(imgSet).__name__)
+                         '%s%s.yaml' % (type(imgSet).__name__, SIDECAR_EXT))
         with open(sidecarFn, 'w') as f:
             yaml.safe_dump(metadata, f, default_flow_style=False,
                            sort_keys=False)
