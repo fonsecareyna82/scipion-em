@@ -52,15 +52,6 @@ class ProtImportImages(ProtImportFiles):
     # see if it is a binary stack containing more items
     _checkStacks = True
 
-    # SPA data-model attributes exported to the YAML sidecar metadata file
-    # when the output set is initialized (see _genSidecarFile). Most belong
-    # to the output set itself; '_framesRange' belongs to each Movie item, so
-    # it is read from the first appended image instead of the set.
-    _sidecarSetAttrs = ['_firstFramesRange', '_firstDim', '_samplingRate',
-                        '_acquisition._voltage', '_acquisition._doseInitial',
-                        '_acquisition._dosePerFrame', '_gainFile', '_darkFile']
-    _sidecarItemAttrs = ['_framesRange']
-        
     # --------------------------- DEFINE param functions ----------------------
 
     def _defineAcquisitionParams(self, form):
@@ -231,7 +222,7 @@ class ProtImportImages(ProtImportFiles):
         # sidecar here, after acquisition/sampling rate have been re-applied,
         # so the metadata reflects any edited parameters.
         if isContinuedRun:
-            self._genSidecarFile(imgSet, imgSet.getFirstItem())
+            self._genSidecarFile(imgSet)
         outFiles = [imgSet.getFileName()]
         imgh = ImageHandler()
         img = imgSet.ITEM_TYPE()
@@ -501,43 +492,30 @@ class ProtImportImages(ProtImportFiles):
             self._setupFirstImage(img, imgSet)
         imgSet.append(img)
         if isFirstImage:
-            self._genSidecarFile(imgSet, img)
+            self._genSidecarFile(imgSet)
 
     def _setupFirstImage(self, img, imgSet):
         pass
 
-    @staticmethod
-    def _getSidecarValue(obj, dottedKey):
-        """ Safely resolve a (possibly nested) attribute by its dotted name
-        and return its scalar value. Returns None when the attribute does not
-        exist on the given object (e.g. _gainFile only exists on SetOfMovies).
-        """
-        attr = obj
-        for partName in dottedKey.split('.'):
-            attr = getattr(attr, partName, None)
-            if attr is None:
-                return None
-        try:
-            return attr.get() if hasattr(attr, 'get') else attr
-        except Exception:
-            return None
-
-    def _genSidecarFile(self, imgSet, firstImg):
+    def _genSidecarFile(self, imgSet):
         """ Generate a YAML sidecar metadata file the first time the output
         set is initialized (i.e. when its first item is appended, which is the
         action that updates the set's attributes).
 
-        It exports a selection of SPA data-model attributes so downstream
-        live/streaming processing (e.g. composing tilt-series for ScipionTomo
-        in a PACE acquisition) can read the set metadata without opening the
-        set DB. The file is written to the protocol's exec_status directory
-        following the '[ClassName].sidecar.yaml' pattern.
+        The file is an exhaustive, faithful serialization of the set's
+        'Properties' table: the class name (stored under the 'self' key) plus
+        every attribute returned by getObjDict() -- exactly what Set.write()
+        persists to that table. These properties are global to the set and
+        identical for every movie it contains, so a downstream streaming
+        consumer (e.g. ProtMotionCorrNewStreaming composing tilt-series for
+        ScipionTomo in a PACE acquisition) can reconstruct a fully functional
+        in-memory Movie from them without opening the set DB.
+
+        The file is written to the protocol's exec_status directory following
+        the '[ClassName].sidecar.yaml' pattern.
         """
-        metadata = {}
-        for key in self._sidecarSetAttrs:
-            metadata[key] = self._getSidecarValue(imgSet, key)
-        for key in self._sidecarItemAttrs:
-            metadata[key] = self._getSidecarValue(firstImg, key)
+        metadata = {'self': imgSet.getClassName()}
+        metadata.update(imgSet.getObjDict())
 
         sidecarFn = join(getExecStatusDir(self),
                          '%s%s.yaml' % (type(imgSet).__name__, SIDECAR_EXT))
