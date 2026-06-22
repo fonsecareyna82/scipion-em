@@ -235,6 +235,20 @@ class LoopActions(enum.Enum):
 
 # -------------------------- Streaming variables -------------------------------
 EXEC_STATUS_DIR = 'status'
-READY_EXT = '.ready'
-SIDECAR_EXT = '.sidecar'
-PROTOCOL_DONE = 'DONE'
+# Append-only NDJSON stream journal (a single writer per producer protocol). It
+# replaces the legacy flat '*.ready' markers + 'DONE' file + YAML sidecar: it is
+# one inode, written append-only and read sequentially (O(new) per poll), which
+# is friendly to HPC network filesystems (no metadata-server storm from globbing
+# a large flat directory on every poll by every consumer).
+STREAM_JOURNAL = 'stream.ndjson'
+STREAM_SCHEMA_VERSION = 1
+# Journal record types (the value of the 'type' key on each line).
+STREAM_REC_HEADER = 'header'  # set-level metadata (folds in the old sidecar)
+STREAM_REC_ITEM = 'item'      # one processed/ready item id
+STREAM_REC_CLOSE = 'close'    # terminal record: the stream is finished
+# Producer liveness heartbeat (mtime-based). A consumer waiting on a stream that
+# was never closed treats the producer as dead once the heartbeat is older than
+# STREAM_HEARTBEAT_TIMEOUT seconds. The default is generous so normal acquisition
+# pauses do not trigger a false positive; override per deployment if needed.
+STREAM_HEARTBEAT = 'HEARTBEAT'
+STREAM_HEARTBEAT_TIMEOUT = 1800

@@ -25,12 +25,17 @@
 # *
 # **************************************************************************
 from glob import glob
-from os.path import join, dirname, basename
+import json
+import os
+import time
+from os.path import join, dirname, basename, exists, getmtime
 import logging
 from pathlib import Path
-from typing import List
+from typing import Optional, Set, Tuple
 
-from pwem import EXEC_STATUS_DIR, READY_EXT, PROTOCOL_DONE
+from pwem import (EXEC_STATUS_DIR, STREAM_JOURNAL, STREAM_SCHEMA_VERSION,
+                  STREAM_REC_HEADER, STREAM_REC_ITEM, STREAM_REC_CLOSE,
+                  STREAM_HEARTBEAT)
 from pyworkflow.protocol import Protocol
 from pyworkflow.utils import makePath
 
@@ -224,17 +229,115 @@ def genExecStatusDir(prot: Protocol) -> None:
     makePath(getExecStatusDir(prot))
 
 
-def getReadyFile(prot: Protocol, imgId: str) -> str:
-    return join(getExecStatusDir(prot), f'{imgId}{READY_EXT}')
+# ---- Append-only stream journal (replaces '*.ready' + 'DONE' + YAML sidecar) --
+def getStreamJournalFn(prot: Protocol) -> str:
+    return join(getExecStatusDir(prot), STREAM_JOURNAL)
 
 
-def genReadyFile(prot: Protocol, imgId: str) -> None:
-    Path(getReadyFile(prot, imgId)).touch()
+def _appendStreamRecord(journalFn: str, record: dict) -> None:
+    """Append one JSON record as a single newline-terminated line.
+
+    A single ``write`` + ``flush`` (+ ``fsync``) of one complete line is the
+    network-filesystem-safe write primitive this design relies on: readers parse
+    only complete '\\n'-terminated lines, so a partially written trailing line is
+    ignored until it is finished. This is what removes the truncated-read race of
+    the old (non-atomic) YAML sidecar.
+    """
+    line = json.dumps(record, sort_keys=False) + '\n'
+    with open(journalFn, 'a') as f:
+        f.write(line)
+        f.flush()
+        os.fsync(f.fileno())
 
 
-def getDoneFile(prot: Protocol) -> str:
-    return join(getExecStatusDir(prot), PROTOCOL_DONE)
+def initStreamJournal(prot: Protocol, imgSet) -> None:
+    """Append a header record carrying the set class name plus its full
+    'Properties' table (``getObjDict()`` -- exactly what ``Set.write()`` persists).
+    These properties are global to the set, so a downstream consumer can rebuild
+    an in-memory set/item from them without opening the producer's set DB.
+
+    On a continued run a fresh header is appended; readers take the LAST header
+    seen, so edited acquisition/sampling parameters are reflected.
+    """
+    record = {
+        'type': STREAM_REC_HEADER,
+        'schema': STREAM_SCHEMA_VERSION,
+        'set': imgSet.getClassName(),
+        'properties': imgSet.getObjDict(),
+    }
+    _appendStreamRecord(getStreamJournalFn(prot), record)
 
 
-def genDoneFile(prot: Protocol) -> None:
-    Path(getDoneFile(prot)).touch()
+def appendStreamItem(prot: Protocol, imgId: str) -> None:
+    """Append one item record signaling that ``imgId`` is ready/processed."""
+    _appendStreamRecord(getStreamJournalFn(prot),
+                        {'type': STREAM_REC_ITEM, 'id': imgId})
+
+
+def closeStreamJournal(prot: Protocol) -> None:
+    """Append the terminal record marking the stream as closed."""
+    _appendStreamRecord(getStreamJournalFn(prot), {'type': STREAM_REC_CLOSE})
+
+
+def touchHeartbeat(prot: Protocol) -> None:
+    """Refresh the producer liveness heartbeat (its mtime). Consumers use the
+    file's age to detect a producer that died without closing the stream."""
+    Path(join(getExecStatusDir(prot), STREAM_HEARTBEAT)).touch()
+
+
+def getHeartbeatAge(statusDir: str) -> Optional[float]:
+    """Seconds since the producer's heartbeat was last refreshed, or None if the
+    heartbeat file does not exist yet."""
+    hbFn = join(statusDir, STREAM_HEARTBEAT)
+    if not exists(hbFn):
+        return None
+    return time.time() - getmtime(hbFn)
+
+
+def readStreamJournal(statusDir: str,
+                      fromOffset: int = 0) -> Tuple[Set[str], Optional[dict], bool, int]:
+    """Incrementally read a stream journal.
+
+    Reads only the bytes after ``fromOffset``, parses only complete
+    newline-terminated lines, and advances the returned offset past the last
+    complete line (a partial trailing line is left for the next call). Returns
+    ``(items, header, closed, newOffset)`` where ``items`` is the set of item ids
+    seen in THIS chunk, ``header`` is the last header record in this chunk (or
+    None) and ``closed`` is True if a close record was seen.
+    """
+    journalFn = join(statusDir, STREAM_JOURNAL)
+    items: Set[str] = set()
+    header = None
+    closed = False
+    if not exists(journalFn):
+        return items, header, closed, fromOffset
+
+    with open(journalFn, 'rb') as f:
+        f.seek(fromOffset)
+        chunk = f.read()
+
+    # Consume only up to the last newline; the remainder is an incomplete line
+    # still being written by the producer.
+    lastNl = chunk.rfind(b'\n')
+    if lastNl == -1:
+        return items, header, closed, fromOffset
+    newOffset = fromOffset + lastNl + 1
+
+    for raw in chunk[:lastNl + 1].splitlines():
+        if not raw.strip():
+            continue
+        try:
+            record = json.loads(raw.decode('utf-8'))
+        except (ValueError, UnicodeDecodeError):
+            # Defensive: skip a single corrupt line rather than abort the stream.
+            logger.warning("Skipping unparseable stream journal line in %s" % statusDir)
+            continue
+        rType = record.get('type')
+        if rType == STREAM_REC_ITEM:
+            items.add(record.get('id'))
+        elif rType == STREAM_REC_HEADER:
+            header = record
+        elif rType == STREAM_REC_CLOSE:
+            closed = True
+
+    return items, header, closed, newOffset

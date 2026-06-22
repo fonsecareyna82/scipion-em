@@ -27,17 +27,15 @@
 import sys
 import os
 import re
-from os.path import exists, isdir, join, basename
+from os.path import exists, isdir, basename
 import time
 from datetime import timedelta, datetime
-import yaml
 import pyworkflow.utils as pwutils
 import pyworkflow.protocol.params as params
-from pwem import (cleanFileName, Config, genExecStatusDir, genDoneFile,
-                  genReadyFile, getExecStatusDir, SIDECAR_EXT)
+from pwem import (cleanFileName, Config, genExecStatusDir, initStreamJournal,
+                  appendStreamItem, closeStreamJournal, touchHeartbeat)
 from pwem.emlib.image import ImageHandler
 from pwem.objects import Acquisition
-from pyworkflow.utils import removeBaseExt
 from .base import ProtImportFiles
 
 
@@ -169,8 +167,8 @@ class ProtImportImages(ProtImportFiles):
                 self._addImageToSet(img, imgSet)
 
             outFiles.append(dst)
-            genReadyFile(self, basename(dst))
-            
+            appendStreamItem(self, basename(dst))
+
             sys.stdout.write("\rImported %d/%d\n" % (i+1, self.numberOfFiles))
             sys.stdout.flush()
             
@@ -180,7 +178,7 @@ class ProtImportImages(ProtImportFiles):
         outputSet = self._getOutputName()
         args[outputSet] = imgSet
         self._defineOutputs(**args)
-        genDoneFile(self)
+        closeStreamJournal(self)
         return outFiles
 
     def importImagesStreamStep(self, pattern, voltage, sphericalAberration,
@@ -218,11 +216,12 @@ class ProtImportImages(ProtImportFiles):
         # Call a function that should be implemented by each subclass
         self.setSamplingRate(imgSet)
         # On a continued run the set already has its first item, so the
-        # first-append trigger in _addImageToSet won't fire. Refresh the
-        # sidecar here, after acquisition/sampling rate have been re-applied,
-        # so the metadata reflects any edited parameters.
+        # first-append trigger in _addImageToSet won't fire. Append a fresh
+        # journal header here, after acquisition/sampling rate have been
+        # re-applied, so the metadata reflects any edited parameters (readers
+        # take the last header seen).
         if isContinuedRun:
-            self._genSidecarFile(imgSet)
+            initStreamJournal(self, imgSet)
         outFiles = [imgSet.getFileName()]
         imgh = ImageHandler()
         img = imgSet.ITEM_TYPE()
@@ -248,6 +247,10 @@ class ProtImportImages(ProtImportFiles):
 
         while not finished:
             time.sleep(Config.SCIPION_EM_NEW_FILE_CHECK_SEC)  # wait some seconds before check for new files(10 seconds by default)
+            # Refresh the producer liveness heartbeat each poll so consumers can
+            # tell this import is still alive even during long gaps with no new
+            # files (vs. a producer that died without closing the stream).
+            touchHeartbeat(self)
             someNew = False
             someAdded = False
 
@@ -291,7 +294,7 @@ class ProtImportImages(ProtImportFiles):
                     self._addImageToSet(img, imgSet)
 
                 outFiles.append(dst)
-                genReadyFile(self, basename(dst))
+                appendStreamItem(self, basename(dst))
                 self.debug('After append. Files: %d' % len(outFiles))
 
             if someAdded:
@@ -330,7 +333,7 @@ class ProtImportImages(ProtImportFiles):
                               state=imgSet.STREAM_CLOSED)
 
         self._cleanUp()
-        genDoneFile(self)
+        closeStreamJournal(self)
         return outFiles
 
     @classmethod
@@ -485,44 +488,17 @@ class ProtImportImages(ProtImportFiles):
         """
         # Detect the first element BEFORE appending. The first append is what
         # populates the set-level attributes (e.g. _firstDim/_firstFramesRange
-        # via SetOfImages.append -> _setFirstDim), so the sidecar must be
-        # generated right after it.
+        # via SetOfImages.append -> _setFirstDim), so the journal header (which
+        # serializes those set-level properties) must be written right after it.
         isFirstImage = imgSet.isEmpty()
         if isFirstImage:
             self._setupFirstImage(img, imgSet)
         imgSet.append(img)
         if isFirstImage:
-            self._genSidecarFile(imgSet)
+            initStreamJournal(self, imgSet)
 
     def _setupFirstImage(self, img, imgSet):
         pass
-
-    def _genSidecarFile(self, imgSet):
-        """ Generate a YAML sidecar metadata file the first time the output
-        set is initialized (i.e. when its first item is appended, which is the
-        action that updates the set's attributes).
-
-        The file is an exhaustive, faithful serialization of the set's
-        'Properties' table: the class name (stored under the 'self' key) plus
-        every attribute returned by getObjDict() -- exactly what Set.write()
-        persists to that table. These properties are global to the set and
-        identical for every movie it contains, so a downstream streaming
-        consumer (e.g. ProtMotionCorrNewStreaming composing tilt-series for
-        ScipionTomo in a PACE acquisition) can reconstruct a fully functional
-        in-memory Movie from them without opening the set DB.
-
-        The file is written to the protocol's exec_status directory following
-        the '[ClassName].sidecar.yaml' pattern.
-        """
-        metadata = {'self': imgSet.getClassName()}
-        metadata.update(imgSet.getObjDict())
-
-        sidecarFn = join(getExecStatusDir(self),
-                         '%s%s.yaml' % (type(imgSet).__name__, SIDECAR_EXT))
-        with open(sidecarFn, 'w') as f:
-            yaml.safe_dump(metadata, f, default_flow_style=False,
-                           sort_keys=False)
-        self.info("Generated sidecar metadata file: %s" % sidecarFn)
 
     def iterNewInputFiles(self):
         """ Iterate over input files that have not been imported.

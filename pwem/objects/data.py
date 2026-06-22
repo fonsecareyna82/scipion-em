@@ -29,12 +29,9 @@ This modules contains basic hierarchy
 for EM data objects like: Image, SetOfImage and others
 """
 import logging
+import time
 import typing
-from glob import glob
-from os.path import join, dirname, basename
-from pathlib import Path
-
-from pyworkflow.utils import removeBaseExt
+from os.path import join, dirname
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +44,7 @@ from pyworkflow.object import (Object, Float, Integer, String,
                                OrderedDict, CsvList, Boolean, Set, Pointer,
                                Scalar)
 from pwem.constants import (NO_INDEX, ALIGN_NONE, ALIGN_2D, ALIGN_3D,
-                            ALIGN_PROJ, ALIGNMENTS, LoopActions, EXEC_STATUS_DIR, READY_EXT, PROTOCOL_DONE)
+                            ALIGN_PROJ, ALIGNMENTS, LoopActions, EXEC_STATUS_DIR)
 
 
 class EMObject(Object):
@@ -1336,9 +1333,75 @@ class EMSet(Set, EMObject):
     def getFiles(self):
         return Set.getFiles(self)
 
+    def _getStatusDir(self) -> str:
+        """ Directory where the producer protocol publishes the stream journal
+        and heartbeat. The set DB lives in the producer's run dir, so the status
+        dir is a sibling of the set file. """
+        return join(dirname(self._mapperPath.get()), EXEC_STATUS_DIR)
+
+    # Coalesce the several journal-backed queries made within one polling
+    # iteration (getProcessedItems() + isStreamClosed() + the liveness check) into
+    # a SINGLE file open, so the journal is not redundantly re-opened in tight
+    # loops -- important on parallel filesystems (Lustre/GPFS) sensitive to
+    # repeated open/close. Polls are seconds apart, so this never delays
+    # discovery; it only suppresses the intra-iteration re-opens.
+    _STREAM_JOURNAL_REFRESH_DEBOUNCE = 1.0  # seconds
+
+    def _refreshStreamJournal(self) -> None:
+        """ Incrementally parse the producer's append-only stream journal,
+        caching the accumulated state on this instance so each poll reads only
+        the newly appended bytes (O(new), not O(N) like a directory glob). The
+        file is opened at most once per debounce window, and never again once the
+        stream is closed (a closed journal is terminal and immutable). """
+        from pwem.utils import readStreamJournal
+        if getattr(self, '_streamJournalOffset', None) is None:
+            self._streamJournalOffset = 0
+            self._streamJournalItems = set()
+            self._streamJournalClosed = False
+            self._streamJournalHeader = None
+            self._streamJournalLastRead = 0.0
+        # Terminal state: a closed journal never changes -> never re-open it.
+        if self._streamJournalClosed:
+            return
+        # Debounce intra-iteration re-reads to a single open.
+        now = time.time()
+        if now - self._streamJournalLastRead < self._STREAM_JOURNAL_REFRESH_DEBOUNCE:
+            return
+        self._streamJournalLastRead = now
+        items, header, closed, newOffset = readStreamJournal(
+            self._getStatusDir(), self._streamJournalOffset)
+        self._streamJournalItems.update(items)
+        if header is not None:
+            self._streamJournalHeader = header
+        if closed:
+            self._streamJournalClosed = True
+        self._streamJournalOffset = newOffset
+
     def isStreamClosed(self) -> bool:
-        doneFile = join(self._mapperPath.get(), EXEC_STATUS_DIR, PROTOCOL_DONE)
-        return Path(doneFile).exists()
+        self._refreshStreamJournal()
+        return self._streamJournalClosed
+
+    def getStreamHeaderProperties(self) -> dict:
+        """ Return the set-level 'Properties' dict published by the producer in
+        the journal header (replaces reading the old YAML sidecar). Empty dict if
+        no header has been seen yet. """
+        self._refreshStreamJournal()
+        header = self._streamJournalHeader or {}
+        return header.get('properties', {})
+
+    def getProducerHeartbeatAge(self) -> typing.Optional[float]:
+        """ Seconds since the producer last refreshed its heartbeat, or None if
+        no heartbeat exists yet. Used to detect a producer that died without
+        closing the stream. """
+        from pwem.utils import getHeartbeatAge
+        return getHeartbeatAge(self._getStatusDir())
+
+    def getProcessedItems(self) -> typing.Set[str]:
+        """ Item ids the producer has published as ready, read from its
+        append-only stream journal (replaces globbing a flat '*.ready' dir).
+        Generic for any streamed set (movies, tilt-series, ...). """
+        self._refreshStreamJournal()
+        return set(self._streamJournalItems)
 
 
 class SetOfImages(EMSet):
@@ -2730,11 +2793,6 @@ class SetOfMovies(SetOfMicrographsBase):
         self._gainFile.set(other.getGain())
         self._darkFile.set(other.getDark())
         self._firstFramesRange.set(other.getFramesRange())
-
-    def getProcessedItems(self) -> typing.Set[str]:
-        inSetProtDir = str(dirname(self._mapperPath.get()))
-        readyFiles = glob(join(inSetProtDir, EXEC_STATUS_DIR, f'*{READY_EXT}'))
-        return set([basename(readyFile).replace(READY_EXT, '') for readyFile in readyFiles])
 
 
 class MovieParticle(Particle):
