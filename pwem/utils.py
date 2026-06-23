@@ -268,10 +268,18 @@ def initStreamJournal(prot: Protocol, imgSet) -> None:
     _appendStreamRecord(getStreamJournalFn(prot), record)
 
 
-def appendStreamItem(prot: Protocol, imgId: str) -> None:
-    """Append one item record signaling that ``imgId`` is ready/processed."""
-    _appendStreamRecord(getStreamJournalFn(prot),
-                        {'type': STREAM_REC_ITEM, 'id': imgId})
+def appendStreamItem(prot: Protocol, imgId: str, meta: Optional[dict] = None) -> None:
+    """Append one item record signaling that ``imgId`` is ready/processed.
+
+    ``meta`` (optional) is a small JSON-serializable dict of per-item metadata
+    inlined into the record. A consumer can then rebuild the item fully from the
+    journal (one sequential read it already performs for discovery) without
+    opening the producer's SQLite set -- avoiding both a DB read and a per-item
+    sidecar file. Keep it small and flat (this is appended once per item)."""
+    record = {'type': STREAM_REC_ITEM, 'id': imgId}
+    if meta is not None:
+        record['meta'] = meta
+    _appendStreamRecord(getStreamJournalFn(prot), record)
 
 
 def closeStreamJournal(prot: Protocol) -> None:
@@ -295,22 +303,24 @@ def getHeartbeatAge(statusDir: str) -> Optional[float]:
 
 
 def readStreamJournal(statusDir: str,
-                      fromOffset: int = 0) -> Tuple[Set[str], Optional[dict], bool, int]:
+                      fromOffset: int = 0) -> Tuple[Set[str], Optional[dict], bool, int, dict]:
     """Incrementally read a stream journal.
 
     Reads only the bytes after ``fromOffset``, parses only complete
     newline-terminated lines, and advances the returned offset past the last
     complete line (a partial trailing line is left for the next call). Returns
-    ``(items, header, closed, newOffset)`` where ``items`` is the set of item ids
-    seen in THIS chunk, ``header`` is the last header record in this chunk (or
-    None) and ``closed`` is True if a close record was seen.
+    ``(items, header, closed, newOffset, itemMeta)`` where ``items`` is the set of
+    item ids seen in THIS chunk, ``header`` is the last header record in this
+    chunk (or None), ``closed`` is True if a close record was seen, and
+    ``itemMeta`` maps item id -> inlined metadata dict for the items that carry it.
     """
     journalFn = join(statusDir, STREAM_JOURNAL)
     items: Set[str] = set()
+    itemMeta: dict = {}
     header = None
     closed = False
     if not exists(journalFn):
-        return items, header, closed, fromOffset
+        return items, header, closed, fromOffset, itemMeta
 
     with open(journalFn, 'rb') as f:
         f.seek(fromOffset)
@@ -320,7 +330,7 @@ def readStreamJournal(statusDir: str,
     # still being written by the producer.
     lastNl = chunk.rfind(b'\n')
     if lastNl == -1:
-        return items, header, closed, fromOffset
+        return items, header, closed, fromOffset, itemMeta
     newOffset = fromOffset + lastNl + 1
 
     for raw in chunk[:lastNl + 1].splitlines():
@@ -334,10 +344,14 @@ def readStreamJournal(statusDir: str,
             continue
         rType = record.get('type')
         if rType == STREAM_REC_ITEM:
-            items.add(record.get('id'))
+            itemId = record.get('id')
+            items.add(itemId)
+            meta = record.get('meta')
+            if meta is not None:
+                itemMeta[itemId] = meta
         elif rType == STREAM_REC_HEADER:
             header = record
         elif rType == STREAM_REC_CLOSE:
             closed = True
 
-    return items, header, closed, newOffset
+    return items, header, closed, newOffset, itemMeta

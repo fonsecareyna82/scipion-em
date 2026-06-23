@@ -1357,6 +1357,7 @@ class EMSet(Set, EMObject):
         if getattr(self, '_streamJournalOffset', None) is None:
             self._streamJournalOffset = 0
             self._streamJournalItems = set()
+            self._streamJournalItemMeta = {}
             self._streamJournalClosed = False
             self._streamJournalHeader = None
             self._streamJournalLastRead = 0.0
@@ -1368,9 +1369,10 @@ class EMSet(Set, EMObject):
         if now - self._streamJournalLastRead < self._STREAM_JOURNAL_REFRESH_DEBOUNCE:
             return
         self._streamJournalLastRead = now
-        items, header, closed, newOffset = readStreamJournal(
+        items, header, closed, newOffset, itemMeta = readStreamJournal(
             self._getStatusDir(), self._streamJournalOffset)
         self._streamJournalItems.update(items)
+        self._streamJournalItemMeta.update(itemMeta)
         if header is not None:
             self._streamJournalHeader = header
         if closed:
@@ -1402,6 +1404,15 @@ class EMSet(Set, EMObject):
         Generic for any streamed set (movies, tilt-series, ...). """
         self._refreshStreamJournal()
         return set(self._streamJournalItems)
+
+    def getProcessedItemsMeta(self) -> dict:
+        """ Map of item id -> inlined per-item metadata, for items whose producer
+        published metadata in the journal (see ``appendStreamItem(..., meta=)``).
+        Lets a consumer rebuild items directly from the journal -- the single
+        sequential read it already does for discovery -- with no producer-DB read
+        and no per-item sidecar files. Empty for producers that publish id-only. """
+        self._refreshStreamJournal()
+        return dict(self._streamJournalItemMeta)
 
 
 class SetOfImages(EMSet):
