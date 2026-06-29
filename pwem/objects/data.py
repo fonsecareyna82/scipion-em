@@ -1381,7 +1381,32 @@ class EMSet(Set, EMObject):
 
     def isStreamClosed(self) -> bool:
         self._refreshStreamJournal()
-        return self._streamJournalClosed
+        if self._streamJournalClosed:
+            return True
+        # No journal-close seen. A non-streaming producer (e.g. an import) sets
+        # the persisted _streamState but never publishes a stream journal, so
+        # there is no status dir. In that case the journal carries no closure
+        # information and we must defer to the persisted state; otherwise a
+        # correctly-closed set would be reported as open (and __str__ would
+        # render ", open set"). Journal-backed streaming sets keep using the
+        # journal as the source of truth.
+        if not os.path.exists(self._getStatusDir()):
+            return Set.isStreamClosed(self)
+        return False
+
+    def isStreamOpen(self) -> bool:
+        # Symmetric counterpart of isStreamClosed: journal-aware, with a fallback
+        # to the persisted _streamState when the set is not journal-backed.
+        self._refreshStreamJournal()
+        if self._streamJournalClosed:
+            return False
+        # A journal-backed streaming set (status dir present) with no close
+        # record is, by definition, still open. A non-streaming producer
+        # publishes no journal, so defer to the persisted state. This guarantees
+        # isStreamOpen() == not isStreamClosed() for the 1/2 stream states.
+        if os.path.exists(self._getStatusDir()):
+            return True
+        return Set.isStreamOpen(self)
 
     def getStreamHeaderProperties(self) -> dict:
         """ Return the set-level 'Properties' dict published by the producer in
