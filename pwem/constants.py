@@ -163,9 +163,9 @@ CONVERT_ENTRY_POINT = 'emconvert'
 CHIMERA_ENTRY_POINT = 'emchimera'
 EM_PROGRAM_ENTRY_POINT = 'emprogram'
 
-# maxit
-MAXIT_HOME = 'MAXIT_HOME'
-MAXIT = 'maxit'
+# # maxit
+# MAXIT_HOME = 'MAXIT_HOME'
+# MAXIT = 'maxit'
 
 # Explanation messages for the wizards
 RING_MASK_WIZ_MSG = \

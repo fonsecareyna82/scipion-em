@@ -299,28 +299,29 @@ class ProtExportDataBases(EMProtocol):
         aSH.read(originStructPath)
         aSH.write(destinySympleStructPath)
 
-        # if pdb convert to mmcif calling maxit twice
+        # if pdb convert to mmcif calling gemmi twice
         if originStructPath.endswith(".pdb"):
-            # convert pdb to cif using maxit program
+            # convert pdb to cif using gemmi
             log = self._log
             fromPDBToCIF(originStructPath,
                          destinyStructPath, log)
             try:
-                # convert cif to mmCIF by using maxit program
+                # convert cif to mmCIF by using gemmi
                 fromCIFTommCIF(destinyStructPath,
                                destinyStructPath, log)
             except Exception as e:
-                pass
-        # if cif convert to mmcif using maxit
+                log.error("Error converting cif to mmCIF: %s" % e)
+                
+        # if cif convert to mmcif using gemmi
         elif originStructPath.endswith(".cif"):
-            # convert cif to mmCIF by using maxit program
+            # convert cif to mmCIF by using gemmi
             log = self._log
             try:
                 fromCIFTommCIF(originStructPath,
                                destinyStructPath, log)
             except Exception as e:
-                pass
-
+                log.error("Error converting cif to mmCIF: %s" % e)
+                
     def exportImageStep(self):
         imageBaseFileName = os.path.basename(self.exportPicture.get())
         outputFile = os.path.join(self.dirName, imageBaseFileName)

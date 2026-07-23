@@ -46,7 +46,7 @@ from collections import OrderedDict
 from Bio.PDB.Polypeptide import is_aa
 from Bio.PDB.Polypeptide import three_to_one
 from Bio.Seq import Seq
-from pwem import Plugin, MAXIT_HOME
+# from pwem import Plugin, MAXIT_HOME
 from pwem.convert.transformations import translation_from_matrix
 import mmap
 import re
@@ -54,6 +54,8 @@ import os
 import numpy
 import pyworkflow.utils as pwutils
 import shutil
+import gemmi
+from pathlib import Path
 
 from pwem.objects.data import Alphabet
 
@@ -938,6 +940,7 @@ def cifToPdb(fnCif, fnPdb):
 
     return fnPdb
 
+
 def map_chains(structure):
     import string
     allowed_ids = list(string.ascii_letters + string.digits)
@@ -983,58 +986,83 @@ def toCIF(inFileName, outCIFFile):
 
 def getEnviron():
     environ = pwutils.Environ(os.environ)
-    environ.update({'RCSBROOT': os.path.join(Plugin.getMaxitHome())
-                    }, position=pwutils.Environ.REPLACE)
-    environ.update({'PATH': os.path.join(Plugin.getMaxitHome(), 'bin')
-                    }, position=pwutils.Environ.BEGIN)
+    # environ.update({'RCSBROOT': os.path.join(Plugin.getMaxitHome())
+    #                 }, position=pwutils.Environ.REPLACE)
+    # environ.update({'PATH': os.path.join(Plugin.getMaxitHome(), 'bin')
+    #                 }, position=pwutils.Environ.BEGIN)
     return environ
 
 
-def _frombase(inFileName, outFileName, log, oParam=1):
-    # check if maxit exists,
-    # if it does not then complain
-    # convert pdb to cif using maxit
-    global maxitAvailable
-    try:
-        maxitAvailable
-    except:
-        if not os.path.exists(Plugin.getMaxitBin()):
-            maxitAvailable = False
-            # show error message
-        else:
-            maxitAvailable = True
+def _frombase(
+        input_filename: str, output_filename: str, log) -> None:
+    """
+    Convert an atomic structure between PDB and mmCIF formats using Gemmi.
 
-    if maxitAvailable:
-        args = ' -input "' + inFileName + '" -output "' + outFileName + \
-               '" -o %d' % oParam
-        log.info('Launching: ' + Plugin.getMaxitBin() + args)
-        # run in the background
-        env = getEnviron()
-        pwutils.runJob(None, Plugin.getMaxitBin(), args, env=env)
+    Supported input/output extensions:
+        .pdb
+        .ent
+        .cif
+        .mmcif
+
+    Parameters
+    ----------
+    input_filename : str
+        Input structure filename.
+    output_filename : str
+        Output structure filename.
+
+    Raises
+    ------
+    ValueError
+        If the output format is not supported.
+    FileNotFoundError
+        If the input file does not exist.
+    """
+
+    input_path = Path(input_filename)
+    output_path = Path(output_filename)
+    log.info(f"Converting structure from '{input_path}' to '{output_path}'")
+    if not input_path.exists():
+        raise FileNotFoundError(input_filename)
+
+    # Read the structure (Gemmi automatically detects the input format)
+    structure = gemmi.read_structure(str(input_path))
+
+    out_ext = output_path.suffix.lower()
+
+    if out_ext in (".pdb", ".ent"):
+        # Gemmi >=0.6
+        if hasattr(structure, "write_pdb"):
+            structure.write_pdb(str(output_path))
+        else:
+            # Older Gemmi versions
+            structure.write_minimal_pdb(str(output_path))
+
+    elif out_ext in (".cif", ".mmcif"):
+        structure.make_mmcif_document().write_file(str(output_path))
+
     else:
-        # this is not the ideal conversion but it is better
-        # than nothing
-        aSH = AtomicStructHandler()
-        aSH.read(inFileName)
-        aSH.write(outFileName)
-        # show error message
-        print(pwutils.redStr("Please, install maxit with the command 'scipion installb maxit'"))
-        print(pwutils.redStr("and restart scipion. Packages bison and flex are needed."))
-        print(pwutils.redStr("If maxit is installed check %s in scipion.conf" % MAXIT_HOME))
+        log.error(f"Unsupported output format '{out_ext}'. "
+                  "Supported formats are .pdb, .ent, .cif and .mmcif.")
+        raise ValueError(
+            f"Unsupported output format '{out_ext}'. "
+            "Supported formats are .pdb, .ent, .cif and .mmcif."
+        )
 
 
 def fromPDBToCIF(inFileName, outFileName, log=None):
-    _frombase(inFileName, outFileName, log, 1)
+    _frombase(inFileName, outFileName, log)
 
 
 def fromCIFToPDB(inFileName, outFileName, log=None):
-    _frombase(inFileName, outFileName, log, 2)
+    _frombase(inFileName, outFileName, log)
 
 
 def fromCIFTommCIF(inFileName, outFileName, log=None):
-    _frombase(inFileName, outFileName, log, 8)
+    _frombase(inFileName, outFileName, log)
 
-def testLog(log, messages= None, sdterrLog = None):
+
+def testLog(log, messages=None, sdterrLog=None):
     # Method to capture exceptions like error messages from Phenix when map and model are far apart
     if sdterrLog is None or messages is None:
         return
@@ -1050,6 +1078,7 @@ def testLog(log, messages= None, sdterrLog = None):
         if "Sorry" in line:
             log.info(pwutils.redStr("WARNING, %s" % line))
 
+
 def retry(runEnvirom, program, args, cwd, listAtomStruct=[], log=None, clean_dir=None, messages=[], sdterrLog=None):
     messages.append(("Sorry: Input map is all zero after boxing", "Sorry: Input map is all zero after boxing"))
 
@@ -1062,7 +1091,7 @@ def retry(runEnvirom, program, args, cwd, listAtomStruct=[], log=None, clean_dir
         # except maps
         partiallyCleaningFolder(program, cwd)
         # something went wrong, may be bad atomStruct format
-        log.info('retry with maxit conversion')
+        log.info('retry with gemmi conversion')
 
         for i, atomStructName in enumerate(listAtomStruct):
             if atomStructName.endswith(".pdb.cif"):

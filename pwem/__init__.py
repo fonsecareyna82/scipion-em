@@ -149,50 +149,50 @@ class Plugin(pyworkflow.plugin.Plugin):
 
         cls._addVar(varName, value, defaultValue, description=description, var_type=var_type)
 
-    @classmethod
-    def getMaxitHome(cls):
-        return cls.getVar(MAXIT_HOME)
+    # @classmethod
+    # def getMaxitHome(cls):
+    #     return cls.getVar(MAXIT_HOME)
 
-    @classmethod
-    def getMaxitBin(cls):
-        return os.path.join(cls.getMaxitHome(), 'bin', MAXIT)
+    # @classmethod
+    # def getMaxitBin(cls):
+    #     return os.path.join(cls.getMaxitHome(), 'bin', MAXIT)
 
     @classmethod
     def _defineVariables(cls):
         # Avoid defining variables from children that does not define variables.
         if cls == Plugin:
             cls._defineVar(EM_ROOT_VAR, pwem.Config.EM_ROOT)
-            cls._defineEmVar(MAXIT_HOME, 'maxit-10.1', description="Path where maxit is installed.", var_type=VarTypes.FOLDER)
+            # cls._defineEmVar(MAXIT_HOME, 'maxit-10.1', description="Path where maxit is installed.", var_type=VarTypes.FOLDER)
 
             # Take this initialization event to define own datasets
             defineDatasets()
             # Register filehandlers too
             cls._registerFileHandlers()
 
-    @classmethod
-    def defineBinaries(cls, env):
-        cls.defineBinariesMaxit(False, env)
+    #@classmethod
+    #def defineBinaries(cls, env):
+    #    cls.defineBinariesMaxit(False, env)
 
-    @classmethod
-    def defineBinariesMaxit(cls, default, env):
-        # If not defined already (several plugins needs this and call this but has to be added once
-        if not env.hasPackage(MAXIT):
-            MAXIT_URL = 'https://sw-tools.rcsb.org/apps/MAXIT/maxit-v10.100-prod-src.tar.gz'
-            MAXIT_TAR = 'maxit-v10.100-prod-src.tar.gz'
-            maxit_commands = [
-                ('sed -i "s/\\bmv\\b/cp/g" cifparse-obj-v7.0/Makefile', []),
-                ('make -j 1 binary', ['bin/maxit'])
-            ]
-            env.addPackage(MAXIT, version='10.1',
-                           tar=MAXIT_TAR,
-                           url=MAXIT_URL,
-                           neededProgs=['gcc', 'flex', 'make', 'bison', 'tcsh'],
-                           commands=maxit_commands,
-                           default=default)  # scipion installb maxit
-            # requirements bison, flex, gcc
+    # @classmethod
+    # def defineBinariesMaxit(cls, default, env):
+    #     # If not defined already (several plugins needs this and call this but has to be added once
+    #     if not env.hasPackage(MAXIT):
+    #         MAXIT_URL = 'https://sw-tools.rcsb.org/apps/MAXIT/maxit-v10.100-prod-src.tar.gz'
+    #         MAXIT_TAR = 'maxit-v10.100-prod-src.tar.gz'
+    #         maxit_commands = [
+    #             ('sed -i "s/\\bmv\\b/cp/g" cifparse-obj-v7.0/Makefile', []),
+    #             ('make -j 1 binary', ['bin/maxit'])
+    #         ]
+    #         env.addPackage(MAXIT, version='10.1',
+    #                        tar=MAXIT_TAR,
+    #                        url=MAXIT_URL,
+    #                        neededProgs=['gcc', 'flex', 'make', 'bison', 'tcsh'],
+    #                        commands=maxit_commands,
+    #                        default=default)  # scipion installb maxit
+    #         # requirements bison, flex, gcc
 
-        maxit10 = env.getTarget(env._getExtName(MAXIT, "10.1"))
-        maxit10.setDefault(default)
+    #     maxit10 = env.getTarget(env._getExtName(MAXIT, "10.1"))
+    #     maxit10.setDefault(default)
 
 
     @classmethod
