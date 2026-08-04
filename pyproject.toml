@@ -44,3 +44,25 @@ dependencies = {file = ["requirements.txt"]}
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["pwem*", "software*"]
+
+[tool.pytest.ini_options]
+testpaths = ["pwem/tests"]
+addopts = [
+    # scipion-em-xmipp is a separate, heavy plugin repo - not installed here.
+    "--ignore=pwem/tests/protocols/test_protocol_alignment_assign.py",
+    "--ignore=pwem/tests/protocols/test_protocol_invert_Hand.py",
+    "--ignore=pwem/tests/protocols/test_protocols_assign_orig.py",
+    # Hardcodes network downloads bypassing SCIPION_TEST_NOSYNC and needs
+    # real Xmipp metadata parsing on the result.
+    "--ignore=pwem/tests/protocols/test_projection_edit.py",
+    # Needs external EM tools (Xmipp/Relion/EMAN2/Chimera/Coot/Refmac) and/or
+    # a GPU - not installable in this repo's own lightweight CI.
+    "--ignore=pwem/tests/workflows",
+    # Live Heroku usage-analytics endpoint, external contract test.
+    "--deselect=pwem/tests/protocols/test_notifier.py::NotifierTest::test_projectNotifier",
+]
+env = [
+    "D:SCIPION_HOME={HOME}/.cache/scipion_pwem_test_home",
+    "D:SCIPION_DOMAIN=pwem",
+    "D:SCIPION_TEST_NOSYNC=1",
+]
