@@ -138,6 +138,46 @@ class ProtStress(ProtTests):
         return []
 
 
+class ProtTestQueue(ProtTests):
+    """ Plugin-free protocol used to exercise the queue/parallel/GPU-param
+    submission machinery in tests, without depending on any real EM tool.
+    doGpu/gpusToUse are plain pass-through params (no actual GPU use) kept
+    only so tests can still parametrize on them.
+    """
+    _label = 'test queue'
+
+    stepsExecutionMode = pwprot.STEPS_PARALLEL
+
+    def _defineParams(self, form):
+        form.addSection(label='Input')
+        form.addParam('sleepSteps', params.IntParam, default=3,
+                      label='Number of steps')
+        form.addParam('sleepSecs', params.IntParam, default=1,
+                      label='Seconds to sleep per step')
+        form.addParam('doGpu', params.BooleanParam, default=False,
+                      label='Use GPU')
+        form.addParam('gpusToUse', params.StringParam, default='',
+                      condition='doGpu', label='GPUs')
+        form.addParallelSection(threads=1, mpi=1)
+
+    def _insertAllSteps(self):
+        stepIds = [self._insertFunctionStep(self.sleepStep, i,
+                                            prerequisites=[])
+                  for i in range(self.sleepSteps.get())]
+        self._insertFunctionStep(self.createOutputStep,
+                                 prerequisites=stepIds)
+
+    def sleepStep(self, i):
+        time.sleep(self.sleepSecs.get())
+
+    def createOutputStep(self):
+        self._defineOutputs(stepsRun=pwprot.Integer(self.sleepSteps.get()))
+
+    def _summary(self):
+        return ["Ran %d sleep step(s) of %d second(s) each."
+                % (self.sleepSteps.get(), self.sleepSecs.get())]
+
+
 # class ProtOutputTest(ProtTests):
 #     """ Protocol to test scalar output and input linking"""
 #     _label = 'test output'
