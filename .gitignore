@@ -17,5 +17,6 @@
 ### pip package files
 *.egg-info
 
+build/
 dist/*
 /pwem/templates/testOrigSampling.json.template
