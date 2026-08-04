@@ -25,7 +25,15 @@ Findings from a real audit of this repo (2026-08-04), not a wishlist. Cited so t
 
 ## Test suite state (context, not new debt — see AGENTS.md for the full picture)
 
-275+ test items in `pwem/tests/`, hermetic subset (~87 tests as of the last CI run) actually gates PRs; ~101 skip cleanly for needing real EM datasets; `workflows/` (32 files) needs external EM tools not installable in lightweight CI. Two audit tasks are already tracked in [`.ai/roadmap.md`](roadmap.md) rather than repeated here: whether the `workflows/` tests' external-plugin dependency is avoidable, and whether the dataset-dependent tests could use smaller synthetic fixtures instead of real EM data.
+271 test items in `pwem/tests/`, hermetic subset (97 tests as of the last CI run) actually gates PRs; 103 skip cleanly for needing real EM datasets; `workflows/` (7 remaining files, down from 10) needs external EM tools not installable in lightweight CI. The `workflows/` plugin-dependency audit itself is done - see [`.ai/roadmap.md`](roadmap.md) for what was resolved, what's a follow-up (fake local queue, `ProtCreateStreamData`'s hidden xmipp3 dependency), and the still-open dataset-dependent-tests audit.
+
+## `ProtCreateStreamData`'s "synthetic data" mode isn't actually plugin-free
+
+`SET_OF_RANDOM_MICROGRAPHS` mode (`pwem/protocols/protocol_create_stream_data.py`'s `createRandomMicStep`) calls `Domain.importFromPlugin('xmipp3', 'Plugin', ...)` and runs `xmipp_transform_filter` - despite being the one mode that doesn't need a real pre-existing input Set, it still needs Xmipp installed. Found while trying to build a plugin-free streaming test (2026-08-04) - see `.ai/roadmap.md`.
+
+## `pwem/tests/conftest.py`'s SCIPION_HOME teardown isn't concurrency-safe
+
+The `pytest_sessionfinish` hook `shutil.rmtree`s the shared `SCIPION_HOME` (`~/.cache/scipion_pwem_test_home` by default) unconditionally. If two pytest invocations run against this repo at the same time, whichever finishes first deletes the directory out from under the other, causing cascading `SystemExit: Missing file .../hosts.conf` failures. Only bites when someone (or some tooling) runs concurrent test invocations - happened once during this session's own work. Not urgent, but a real, reproducible footgun - see `.ai/roadmap.md`.
 
 ## Runtime deprecation check
 
