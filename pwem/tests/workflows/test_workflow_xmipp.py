@@ -119,21 +119,11 @@ class TestXmippWorkflow(TestWorkflow):
                              "There was a problem with the extract particles")
         self.validateFiles('protExtract', protExtract)
 
-        print("Run Extract Coordinates without applying shifts")
-        protExtractCoords = self.newProtocol(emprot.ProtExtractCoords)
-        protExtractCoords.inputParticles.set(protExtract.outputParticles)
-        protExtractCoords.inputMicrographs.set(protImport.outputMicrographs)
-        self.launchProtocol(protExtractCoords)
-        # The size of the set of coordinates must be the same as the input set of particles
-        self.assertSetSize(protExtractCoords.outputCoordinates,
-                           size=protExtract.outputParticles.getSize(),
-                           msg="There was a problem with the coordinates extraction")
-        # Check if the scaling factor is being calculated and applied correctly
-        scale = protExtract.outputParticles.getSamplingRate() / protImport.outputMicrographs.getSamplingRate()
-        inParticleCoord = protExtract.outputParticles.getFirstItem().getCoordinate()
-        x, y = inParticleCoord.getPosition()
-        np.testing.assert_allclose(protExtractCoords.outputCoordinates.getFirstItem().getPosition(),
-                                   (int(x * scale), int(y * scale)), rtol=0.5)
+        # Note: the coordinate-rescaling logic of ProtExtractCoords (no
+        # shifts) is covered without any plugin dependency in
+        # pwem/tests/protocols/test_protocol_extract_coorinates.py -
+        # not re-checked here, this file focuses on the Xmipp-specific
+        # steps.
 
         print("Run Screen Particles")
         protScreen = self.newProtocol(xmippProtcols.XmippProtScreenParticles,
