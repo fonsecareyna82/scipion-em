@@ -29,6 +29,11 @@ from .test_workflow import TestWorkflow
 
 
 # update this test when RCT workflow are implemented
+# Note: ProtImportMicrographsTiltPairs's own correctness (used as setup
+# below) is already covered without any plugin dependency in
+# pwem/tests/protocols/test_protocols_import_coords.py::TestImportCoordinatesPairs
+# (same 'rct' dataset) - not re-verified here, this file is about the
+# Xmipp-specific RCT pipeline that consumes it.
 class TestXmippRCTWorkflow(TestWorkflow):
     @classmethod
     def setUpClass(cls):
