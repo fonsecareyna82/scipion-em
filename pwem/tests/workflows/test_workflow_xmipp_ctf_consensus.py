@@ -32,6 +32,18 @@ class TestCtfConsensus(pwtests.BaseTest):
     """ Check if the Xmipp-CTFconsensus rejects CTFs (and the corresponding mics)
         when two CTF estimations give different results,
         and accept when the two estimations give similar results.
+
+    Note: the streaming/_waitOutput mechanism this test also exercises
+    (waiting on protocols' growing outputs) is generic pyworkflow behavior,
+    already covered plugin-free in scipion-pyworkflow's own test suite
+    (pyworkflowtests/tests/test_streaming.py). A pwem-specific plugin-free
+    equivalent (streaming a real EM Set type, e.g. SetOfMicrographs) was
+    attempted here but blocked: ProtCreateStreamData's only from-scratch
+    mode (SET_OF_RANDOM_MICROGRAPHS) turns out to itself depend on xmipp3
+    (protocol_create_stream_data.py's createRandomMicStep calls
+    xmipp_transform_filter) despite looking like a pure synthetic-data
+    generator; every other mode needs a real pre-existing input Set. See
+    .ai/roadmap.md.
     """
 
     @classmethod
