@@ -44,3 +44,7 @@ The electron-microscopy domain layer of Scipion. Depends on `scipion-pyworkflow`
 ## Real EM dependencies mixed in
 
 `pwem/emlib/` and several viewer modules assume domain-specific tools (Xmipp, PDB/atomic-structure libraries) may or may not be present. This repo is explicitly designed to degrade gracefully rather than hard-fail when they're missing — keep that pattern when adding anything that touches an optional external tool.
+
+## Keeping this document current
+
+This file describes the repo as of the last time someone updated it — it will drift out of date as the code changes. If your change touches anything described above (architecture map, conventions, testing setup, gotchas), update the relevant section in this file as part of the same change, not as a separate follow-up. Don't wait to be asked.
