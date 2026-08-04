@@ -139,7 +139,7 @@ class ImageStack:
             return npArray
 
         bg = npArray.mean() if bg is None else bg  # Get the mean value
-        reshape = mode == ROT_MODE.FIXED  # Fixed mode should not reshape the array
+        reshape = mode != ROT_MODE.FIXED  # Fixed mode should not reshape the array
 
         # Rotate the image
         rotated = rotate(npArray, angle, reshape=reshape, mode='constant', cval=bg)
