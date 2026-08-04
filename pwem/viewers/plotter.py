@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 from math import radians, degrees
 import numpy as np
 import matplotlib.cm as cm
-from scipy.ndimage.filters import gaussian_filter
+from scipy.ndimage import gaussian_filter
 
 from pwem.convert.transformations import euler_from_matrix
 from pyworkflow.gui.plotter import Plotter, plt
