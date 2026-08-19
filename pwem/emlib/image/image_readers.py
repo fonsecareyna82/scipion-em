@@ -749,15 +749,15 @@ class MRCImageReader(ImageReader):
         if "@" in path:
             path = path.split('@')[-1]
 
-        mrcImg = cls.getMrcImage(path)
+        mrcImg = cls.getMrcImage(path, mode='r')
         imfloat = mrcImg.data
 
         return imfloat
 
     @classmethod
-    def getMrcImage(cls, fileName):
+    def getMrcImage(cls, fileName, mode='r+'):
         logger.info("Reading %s" % fileName)
-        return mrcfile.mmap(fileName, mode='r+', permissive=True)
+        return mrcfile.mmap(fileName, mode=mode, permissive=True)
 
     @classmethod
     def getArray(cls, filename):
