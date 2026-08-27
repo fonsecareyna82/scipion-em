@@ -36,13 +36,16 @@ class TestCtfConsensus(pwtests.BaseTest):
     Note: the streaming/_waitOutput mechanism this test also exercises
     (waiting on protocols' growing outputs) is generic pyworkflow behavior,
     already covered plugin-free in scipion-pyworkflow's own test suite
-    (pyworkflowtests/tests/test_streaming.py). A pwem-specific plugin-free
-    equivalent (streaming a real EM Set type, e.g. SetOfMicrographs) was
-    attempted here but blocked: ProtCreateStreamData's only from-scratch
-    mode (SET_OF_RANDOM_MICROGRAPHS) turns out to itself depend on xmipp3
-    (protocol_create_stream_data.py's createRandomMicStep calls
-    xmipp_transform_filter) despite looking like a pure synthetic-data
-    generator; every other mode needs a real pre-existing input Set. See
+    (pyworkflowtests/tests/test_streaming.py). This test itself still needs
+    xmipp3/cistem for CTF estimation (XmippProtCTFMicrographs,
+    CistemProtCTFFind, XmippProtCTFConsensus) - real algorithm-specific
+    behavior, not just "something to run", so it stays a genuine
+    multi-plugin integration test excluded from hermetic CI. The
+    ProtCreateStreamData random-micrographs generation this test also used
+    to depend on xmipp3 for despite looking plugin-free (it shelled out to
+    xmipp_transform_filter to apply the CTF) has since been fixed to run
+    in-process via emlib.applyCTF instead - see
+    pwem/tests/protocols/test_protocol_create_stream_data.py and
     .ai/roadmap.md.
     """
 

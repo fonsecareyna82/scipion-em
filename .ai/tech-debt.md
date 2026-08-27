@@ -27,9 +27,9 @@ Findings from a real audit of this repo (2026-08-04), not a wishlist. Cited so t
 
 271 test items in `pwem/tests/`, hermetic subset (97 tests as of the last CI run) actually gates PRs; 103 skip cleanly for needing real EM datasets; `workflows/` (7 remaining files, down from 10) needs external EM tools not installable in lightweight CI. The `workflows/` plugin-dependency audit itself is done - see [`.ai/roadmap.md`](roadmap.md) for what was resolved, what's a follow-up (fake local queue, `ProtCreateStreamData`'s hidden xmipp3 dependency), and the still-open dataset-dependent-tests audit.
 
-## `ProtCreateStreamData`'s "synthetic data" mode isn't actually plugin-free
+## `ProtCreateStreamData`'s "synthetic data" mode isn't actually plugin-free (Fixed 2026-08-27)
 
-`SET_OF_RANDOM_MICROGRAPHS` mode (`pwem/protocols/protocol_create_stream_data.py`'s `createRandomMicStep`) calls `Domain.importFromPlugin('xmipp3', 'Plugin', ...)` and runs `xmipp_transform_filter` - despite being the one mode that doesn't need a real pre-existing input Set, it still needs Xmipp installed. Found while trying to build a plugin-free streaming test (2026-08-04) - see `.ai/roadmap.md`.
+`SET_OF_RANDOM_MICROGRAPHS` mode (`pwem/protocols/protocol_create_stream_data.py`'s `createRandomMicStep`) used to call `Domain.importFromPlugin('xmipp3', 'Plugin', ...)` and run `xmipp_transform_filter` just to apply a CTF - despite being the one mode that doesn't need a real pre-existing input Set, it still needed Xmipp installed. Found while trying to build a plugin-free streaming test (2026-08-04). Fixed by switching to `emlib.applyCTF`, a base `xmippLib` binding already bundled with `pwem` (not the `xmipp3` plugin) - see `.ai/roadmap.md`.
 
 ## `pwem/tests/conftest.py`'s SCIPION_HOME teardown isn't concurrency-safe
 
