@@ -367,7 +367,7 @@ class ProtCreateStreamData(EMProtocol):
         # create image
         img = emlib.Image()
         img.setDataType(emlib.DT_FLOAT)
-        img.resize(self.xDim, self.yDim)
+        img.resize(self.xDim.get(), self.yDim.get())
         img.initRandom(0., 1., emlib.XMIPP_RND_UNIFORM)
         baseFn = self._getExtraPath(self._singleImageFn)
         img.write(baseFn)
