@@ -30,6 +30,8 @@ import os
 import warnings
 from math import ceil
 
+import numpy as np
+
 import pyworkflow.object as pwobj
 import pyworkflow.utils as pwutils
 from pyworkflow.gui.plotter import Plotter
@@ -560,20 +562,6 @@ class ProtAlignMovies(ProtProcessMovies):
 
         return preExp, dose
 
-    def __runXmippProgram(self, program, args):
-        """ Internal shortcut function to launch a Xmipp program. """
-        from pwem import Domain
-        xmipp3 = Domain.importFromPlugin('xmipp3')
-        xmipp3.Plugin.runXmippProgram(program, args)
-
-    def __runEman2Program(self, program, args):
-        """ Internal workaround to launch an EMAN2 program. """
-        from pwem import Domain
-        eman2 = Domain.importFromPlugin('eman2')
-        from pyworkflow.utils.process import runJob
-        runJob(self._log, eman2.Plugin.getProgram(program), args,
-               env=eman2.Plugin.getEnviron())
-
     def computePSD(self, inputMic, oroot, dim=384,  # 384 = 128 + 256, which should be fast for any Fourier Transformer
                    overlap=0.4):
         warnings.warn("Use psd = image.computePSD(overlap=0.4, xdim=384, ydim=384, fftthreads=1) instead",
@@ -636,11 +624,23 @@ class ProtAlignMovies(ProtProcessMovies):
 
     def computeThumbnail(self, inputFn, scaleFactor=6, outputFn=None):
         """ Generates a thumbnail of the input file"""
-        outputFn = outputFn or self.getThumbnailFn(inputFn)
-        args = "%s %s " % (inputFn, outputFn)
-        args += "--meanshrink %s --fixintscaling=sane" % scaleFactor
+        from PIL import Image as PILImage
 
-        self.__runEman2Program('e2proc2d.py', args)
+        outputFn = outputFn or self.getThumbnailFn(inputFn)
+
+        arr = np.squeeze(emlib.image.ImageHandler().read(inputFn).getData())
+
+        h, w = arr.shape
+        newH, newW = max(1, h // scaleFactor), max(1, w // scaleFactor)
+        shrunk = arr[:newH * scaleFactor, :newW * scaleFactor].reshape(
+            newH, scaleFactor, newW, scaleFactor).mean(axis=(1, 3))
+
+        lo, hi = np.percentile(shrunk, [0.5, 99.5])
+        if hi <= lo:
+            lo, hi = shrunk.min(), shrunk.max() or 1.0
+        normalized = np.clip((shrunk - lo) / (hi - lo), 0, 1) * 255
+
+        PILImage.fromarray(normalized.astype(np.uint8)).save(outputFn)
 
         return outputFn
 
