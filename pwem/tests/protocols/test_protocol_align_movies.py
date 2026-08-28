@@ -66,6 +66,35 @@ class TestComputeThumbnail(unittest.TestCase):
         self.assertGreater(thumbData.std(), 0,
                            "Thumbnail should not be blank/constant")
 
+    def test_matchesEman2FixintscalingSaneFormula(self):
+        """ EMAN2's e2proc2d.py --fixintscaling=sane maps
+        [mean - 2.5*sigma, mean + 2.5*sigma] to the output integer range
+        (confirmed against eman2/programs/e2proc2d.py's actual source:
+        sca = 2.5; render_min = mean - sigma*sca; render_max = mean + sigma*sca).
+        Uses scaleFactor=1 so meanshrink is a no-op and the output can be
+        predicted exactly from the known input.
+        """
+        rng = np.random.default_rng(1)
+        data = rng.normal(100, 15, (40, 40)).astype(np.float32)
+
+        smallInputFn = os.path.join(self.tmpDir, "small.mrc")
+        img = emlib.Image()
+        img.setDataType(emlib.DT_FLOAT)
+        img.setData(data.reshape(1, 1, 40, 40))
+        img.write(smallInputFn)
+
+        prot = ProtAlignMovies(workingDir=self.tmpDir)
+        outputFn = prot.computeThumbnail(smallInputFn, scaleFactor=1)
+
+        mean, sigma = data.mean(), data.std()
+        lo, hi = mean - 2.5 * sigma, mean + 2.5 * sigma
+        expected = np.clip((data - lo) / (hi - lo), 0, 1) * 255
+
+        actual = np.array(PILImage.open(outputFn)).astype(np.float64)
+
+        np.testing.assert_allclose(actual, expected.astype(np.uint8),
+                                   atol=1)
+
     def test_respectsCustomOutputFn(self):
         prot = ProtAlignMovies(workingDir=self.tmpDir)
         customOutputFn = os.path.join(self.tmpDir, "custom.png")

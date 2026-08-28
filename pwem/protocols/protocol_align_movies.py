@@ -623,7 +623,13 @@ class ProtAlignMovies(ProtProcessMovies):
                               outputFnUncorrected, outputFnCorrected)
 
     def computeThumbnail(self, inputFn, scaleFactor=6, outputFn=None):
-        """ Generates a thumbnail of the input file"""
+        """ Generates a thumbnail of the input file.
+
+        Matches EMAN2's e2proc2d.py --meanshrink N --fixintscaling=sane,
+        which this used to shell out to (see eman2/programs/e2proc2d.py):
+        meanshrink averages NxN pixel blocks, and fixintscaling=sane maps
+        [mean - 2.5*sigma, mean + 2.5*sigma] to the output integer range.
+        """
         from PIL import Image as PILImage
 
         outputFn = outputFn or self.getThumbnailFn(inputFn)
@@ -635,7 +641,8 @@ class ProtAlignMovies(ProtProcessMovies):
         shrunk = arr[:newH * scaleFactor, :newW * scaleFactor].reshape(
             newH, scaleFactor, newW, scaleFactor).mean(axis=(1, 3))
 
-        lo, hi = np.percentile(shrunk, [0.5, 99.5])
+        mean, sigma = shrunk.mean(), shrunk.std()
+        lo, hi = mean - 2.5 * sigma, mean + 2.5 * sigma
         if hi <= lo:
             lo, hi = shrunk.min(), shrunk.max() or 1.0
         normalized = np.clip((shrunk - lo) / (hi - lo), 0, 1) * 255
