@@ -50,6 +50,22 @@ Full audit of `Domain.importFromPlugin(...)` across `pwem/` (excluding tests), t
 
 **Not a core issue:** the 84 `ccp4.protocols`/`chimera.protocols`/`phenix.protocols` hits are all in test files (`test_protocol_export2DB.py`, `test_workflow_modeling.py`), not production code - out of scope for this finding.
 
+## Core code hard-locked to one specific EM plugin (audit, 2026-08-27)
+
+Full audit of `Domain.importFromPlugin(...)` across `pwem/` (excluding tests), triggered by the `ProtCreateStreamData` fix above raising the same question more broadly: where else does supposedly plugin-agnostic core code actually require one specific plugin (xmipp3/eman2/cistem/relion/...) to be installed? Triaged into three buckets:
+
+**Confirmed problem - generic operation locked to one arbitrary plugin, should not need any:**
+- `pwem/emlib/image/image_handler.py`'s `ImageHandler` - **the single most central image class in `pwem`** - has 8 methods (`createCircularMask`, `rotateVolume`/applyTransform, addNoise, resize/scaleSplines, threshold ×2, one via eman2, downsample) that are thin wrappers around private `__runXmippProgram`/`__runEman2Program` helpers, i.e. they shell out to xmipp3 (7 of them) or eman2 (1) command-line binaries. Any pwem protocol or test calling e.g. `ImageHandler().createCircularMask(...)` fails without xmipp3 installed, despite `ImageHandler` being pwem's own core image utility. **Biggest single finding, not yet fixed** - each method needs a real numpy/emlib-native reimplementation, not a one-line swap like `ProtCreateStreamData`'s was.
+- `pwem/protocols/parallel.py` (`ProtTestParallel`) - **[Fixed 2026-08-27]** legacy test protocol shelling to `xmipp_work_test`. Confirmed dead: no test or workflow referenced it, and it wasn't even hidden from the GUI (`Protocol` base, not `ProtTests`) unlike its modern replacement. Deleted - `ProtTestQueue` (`pwem/protocols/protocol_tests.py`, built 2026-08-04) already covers the same parallel/queue-testing need, plugin-free and properly hidden.
+- `pwem/viewers/showj.py:302` (`runJavaIJapp`) - needs `xmipp3.Plugin.getEnviron()` to launch the Java-based "showj" metadata table viewer. Not yet assessed further - the showj Java app itself may genuinely be Xmipp-authored software, would need to confirm before treating as fixable.
+- `pwem/viewers/viewers_data.py:266,304` - already tracked above (coordinates visualization coupled to xmipp3).
+
+**Likely legitimate - format-specific I/O, not an arbitrary lock-in:**
+- `image_handler.py`'s narrow eman2 fallback for `.img`/dm4 format conversion (xmippLib can't read that format at all).
+- `pwem/protocols/protocol_import/{coordinates,ctfs,particles,micrographs}.py`, `pwem/cmd/convert.py`, `pwem/utils.py:67` - import readers for a specific tool's native file format (Xmipp CTF param, Relion star, Eman2 json, etc.) - the format itself belongs to that tool, so needing that tool's reader to import it is inherent, not a design flaw. Not individually re-verified line by line.
+
+**Not a core issue:** the 84 `ccp4.protocols`/`chimera.protocols`/`phenix.protocols` hits are all in test files (`test_protocol_export2DB.py`, `test_workflow_modeling.py`), not production code - out of scope for this finding.
+
 ## `pwem/tests/conftest.py`'s SCIPION_HOME teardown isn't concurrency-safe
 
 The `pytest_sessionfinish` hook `shutil.rmtree`s the shared `SCIPION_HOME` (`~/.cache/scipion_pwem_test_home` by default) unconditionally. If two pytest invocations run against this repo at the same time, whichever finishes first deletes the directory out from under the other, causing cascading `SystemExit: Missing file .../hosts.conf` failures. Only bites when someone (or some tooling) runs concurrent test invocations - happened once during this session's own work. Not urgent, but a real, reproducible footgun - see `.ai/roadmap.md`.
