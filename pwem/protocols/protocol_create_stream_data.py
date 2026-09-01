@@ -362,15 +362,12 @@ class ProtCreateStreamData(EMProtocol):
 
 
     def createRandomMicStep(self, mic):
-        from pwem import Domain
         time.sleep(self.getTimeInterval())
-        getEnviron = Domain.importFromPlugin('xmipp3', 'Plugin',
-                                             doRaise=True).getEnviron
 
         # create image
         img = emlib.Image()
         img.setDataType(emlib.DT_FLOAT)
-        img.resize(self.xDim, self.yDim)
+        img.resize(self.xDim.get(), self.yDim.get())
         img.initRandom(0., 1., emlib.XMIPP_RND_UNIFORM)
         baseFn = self._getExtraPath(self._singleImageFn)
         img.write(baseFn)
@@ -401,12 +398,10 @@ class ProtCreateStreamData(EMProtocol):
 
         md1.write(baseFnCtf)
 
-        # apply ctf
-        args = " -i %s" % baseFn
-        args += " -o %s" % baseFnImageCTF
-        args += " -f ctf %s" % baseFnCtf
-        args += " --sampling %f" % self.samplingRate
-        self.runJob("xmipp_transform_filter", args, env=getEnviron())
+        # apply ctf in-process, using the base xmippLib binding bundled
+        # with pwem itself (no external xmipp3 plugin binary needed)
+        emlib.applyCTF(img, baseFnCtf, self.samplingRate.get())
+        img.write(baseFnImageCTF)
         self.dictObj[baseFnImageCTF] = True
         self._checkProcessedData()
 
