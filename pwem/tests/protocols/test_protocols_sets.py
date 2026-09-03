@@ -118,7 +118,7 @@ class TestSets(pwtests.BaseTest):
         relionFile = 'import/case2/relion_it015_data.star'
         pImpPartMicId = new(emprot.ProtImportParticles,
                             objLabel='from relion (auto-refine 3d)',
-                            importFrom=emprot.ProtImportParticles.IMPORT_FROM_RELION,
+                            importFrom='relion',
                             starFile=cls.datasetRelion.getFile(relionFile),
                             magnification=10000,
                             samplingRate=7.08,
@@ -442,7 +442,7 @@ class TestSets(pwtests.BaseTest):
         # import them
         protImport1 = self.newProtocol(emprot.ProtImportParticles,
                                        objLabel='import set1',
-                                       importFrom=emprot.ProtImportParticles.IMPORT_FROM_SCIPION,
+                                       importFrom='scipion',
                                        sqliteFile=inFileNameMetadata1,
                                        magnification=10000,
                                        samplingRate=7.08,
@@ -451,7 +451,7 @@ class TestSets(pwtests.BaseTest):
 
         protImport2 = self.newProtocol(emprot.ProtImportParticles,
                                        objLabel='import set2',
-                                       importFrom=emprot.ProtImportParticles.IMPORT_FROM_SCIPION,
+                                       importFrom='scipion',
                                        sqliteFile=inFileNameMetadata2,
                                        magnification=10000,
                                        samplingRate=7.08,
@@ -528,7 +528,7 @@ class TestSets(pwtests.BaseTest):
         # import them
         protImport1 = self.newProtocol(emprot.ProtImportParticles,
                                        objLabel='import set1',
-                                       importFrom=emprot.ProtImportParticles.IMPORT_FROM_SCIPION,
+                                       importFrom='scipion',
                                        sqliteFile=inFileNameMetadata1,
                                        magnification=10000,
                                        samplingRate=7.08,
@@ -538,7 +538,7 @@ class TestSets(pwtests.BaseTest):
 
         protImport2 = self.newProtocol(emprot.ProtImportParticles,
                                        objLabel='import set2',
-                                       importFrom=emprot.ProtImportParticles.IMPORT_FROM_SCIPION,
+                                       importFrom='scipion',
                                        sqliteFile=inFileNameMetadata2,
                                        magnification=10000,
                                        samplingRate=7.08,
@@ -605,7 +605,7 @@ class TestSets(pwtests.BaseTest):
         imgSet.write()
         # now import the dataset
         prot1 = self.newProtocol(emprot.ProtImportParticles,
-                                 importFrom=emprot.ProtImportParticles.IMPORT_FROM_SCIPION,
+                                 importFrom='scipion',
                                  sqliteFile=inFileNameMetadata,
                                  magnification=10000,
                                  samplingRate=1.5

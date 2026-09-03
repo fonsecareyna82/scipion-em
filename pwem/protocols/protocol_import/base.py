@@ -61,14 +61,16 @@ class ProtImportFiles(ProtImport):
 
         form.addSection(label='Import')
 
+        importFromParamClass = self._getImportFromParamClass()
+
         if len(importChoices) > 1:  # not only from files
-            form.addParam('importFrom', params.EnumParam,
+            form.addParam('importFrom', importFromParamClass,
                           choices=importChoices, default=self._getDefaultChoice(),
                           label='Import from',
                           help='Select the type of import.')
         else:
-            form.addHidden('importFrom', params.EnumParam,
-                           choices=importChoices, default=self.IMPORT_FROM_FILES,
+            form.addHidden('importFrom', importFromParamClass,
+                           choices=importChoices, default=self._getDefaultChoice(),
                            label='Import from',
                            help='Select the type of import.')
         form.addParam('filesPath', params.PathParam,
@@ -162,6 +164,18 @@ class ProtImportFiles(ProtImport):
 
     def _getDefaultChoice(self):
         return self.IMPORT_FROM_FILES
+
+    def _getImportFromParamClass(self):
+        """ Return the param class to use for the 'importFrom' selector.
+        Defaults to the legacy ordinal-valued EnumParam, unchanged for
+        every protocol that doesn't override this. Protocols whose choice
+        list is (partly) built from pyworkflow.plugin.Domain.findCapabilityProviders
+        (see .ai/capability-providers.md in scipion-pyworkflow) must
+        override this to return params.KeyedEnumParam instead, since that
+        list can differ in size/order between runs -- a plain ordinal
+        would silently point to the wrong choice.
+        """
+        return params.EnumParam
 
     # --------------------------- INFO functions ------------------------------
     def _validate(self):

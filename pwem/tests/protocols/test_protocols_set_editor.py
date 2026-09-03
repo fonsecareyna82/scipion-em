@@ -155,7 +155,7 @@ class TestSets(pwtests.BaseTest):
             setPartSqliteName,
             "import projection\n operation",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_SCIPION)
+            'scipion')
 
         # launch operate set protocol
         protSetEditor = self.newProtocol(ProtSetEditor,

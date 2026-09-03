@@ -42,7 +42,7 @@ class TestVolumeHomogenizer(BaseTest):
         """
         prot = self.newProtocol(ProtImportParticles,
                                 objLabel='particles from relion (auto-refine 3d)',
-                                importFrom=ProtImportParticles.IMPORT_FROM_RELION,
+                                importFrom='relion',
                                 starFile=self.dsRelion.getFile('import/classify3d/extra/relion_it015_data.star'),
                                 magnification=10000,
                                 samplingRate=7.08,
@@ -69,7 +69,7 @@ class TestVolumeHomogenizer(BaseTest):
 
         protImportCls1 = self.newProtocol(ProtImportParticles,
                                           objLabel='particles class-%d' % classid,
-                                          importFrom=ProtImportParticles.IMPORT_FROM_SCIPION,
+                                          importFrom='scipion',
                                           sqliteFile=dbPartSet,
                                           magnification=10000,
                                           samplingRate=7.08,

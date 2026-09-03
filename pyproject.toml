@@ -31,6 +31,20 @@ Issues = "https://github.com/scipion-em/scipion-em/issues"
 [project.entry-points."pyworkflow.plugin"]
 pwem = "pwem"
 
+# Native import capability providers for formats whose own plugin repo
+# hasn't (yet) migrated to self-registering its own provider -- see
+# pwem/protocols/protocol_import/import_providers.py and
+# scipion-pyworkflow's .ai/capability-providers.md. Each wraps the exact
+# same Domain.importFromPlugin(...) call the old hardcoded elif chain used;
+# delete the corresponding line here once that plugin self-registers.
+[project.entry-points."pyworkflow.capability_provider"]
+pwem-import-particles-emx = "pwem.protocols.protocol_import.import_providers:EmxParticlesImportProvider"
+pwem-import-particles-xmipp3 = "pwem.protocols.protocol_import.import_providers:Xmipp3ParticlesImportProvider"
+pwem-import-particles-relion = "pwem.protocols.protocol_import.import_providers:RelionParticlesImportProvider"
+pwem-import-particles-scipion = "pwem.protocols.protocol_import.import_providers:ScipionParticlesImportProvider"
+pwem-import-particles-frealign = "pwem.protocols.protocol_import.import_providers:FrealignParticlesImportProvider"
+pwem-import-particles-eman = "pwem.protocols.protocol_import.import_providers:EmanParticlesImportProvider"
+
 [project.scripts]
 emprogram = 'pwem.cmd.program:main'
 emchimera = 'pwem.cmd.chimera_client:main'

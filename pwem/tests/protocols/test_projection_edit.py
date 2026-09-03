@@ -402,7 +402,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             setPartSqliteName,
             "import projection\n rot vector",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_SCIPION)
+            'scipion')
 
         # launch operate set protocol
         protSetEditor = self.newProtocol(
@@ -450,7 +450,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             abspath(self.proj.getTmpPath(f'{symFile}.xmd')),
             f"import projection\n {symFile}",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_XMIPP3)
+            'xmipp3')
         _ = self._importVolume(abspath(self.proj.getTmpPath(f'{symFile}.mrc')),
                                f"import vol\n {symFile}")
         # reconstruct using C7 symmetry
@@ -534,7 +534,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             setPartSqliteName,
             "import projection\n rot vector",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_SCIPION)
+            'scipion')
 
         # launch operate set protocol
         protSetEditor = self.newProtocol(
@@ -580,7 +580,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             abspath(self.proj.getTmpPath(f'{symFile}.xmd')),
             f"import projection\n {symFile}",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_XMIPP3)
+            'xmipp3')
         _ = self._importVolume(abspath(self.proj.getTmpPath(f'{symFile}.mrc')),
                                f"import vol\n {symFile}")
         # reconstruct using C7 symmetry
@@ -640,7 +640,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             setPartSqliteName,
             "import projection\n d7x",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_SCIPION)
+            'scipion')
 
         # launch operate set protocol
         protSetEditor = self.newProtocol(
@@ -682,7 +682,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             self.proj.getTmpPath(f'{symFile}.xmd'),
             f"import projection\n {symFile}",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_XMIPP3)
+            'xmipp3')
         _ = self._importVolume(
                 abspath(self.proj.getTmpPath(f'{symFile}.mrc')),
                 f"import vol\n {symFile}")
@@ -751,7 +751,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             self.proj.getTmpPath(f'{symFile}.xmd'),
             f"import projection\n {symFile}",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_XMIPP3)
+            'xmipp3')
         _ = self._importVolume(
                 abspath(self.proj.getTmpPath(f'{symFile}.mrc')),
                 f"import vol\n {symFile}")
@@ -823,7 +823,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             setPartSqliteName,
             "import projection\n t222",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_SCIPION)
+            'scipion')
 
         # launch operate set protocol
         protSetEditor = self.newProtocol(
@@ -868,7 +868,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             self.proj.getTmpPath(f'{symFile}.xmd'),
             f"import projection\n {symFile}",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_XMIPP3)
+            'xmipp3')
 
         _ = self._importVolume(
             self.proj.getTmpPath(f'{symFile}.mrc'),
@@ -941,7 +941,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             self.proj.getTmpPath(f'{symFile}.xmd'),
             f"import projection\n {symFile}",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_XMIPP3)
+            'xmipp3')
         _ = self._importVolume(
                 self.proj.getTmpPath(f'{symFile}.mrc'),
                 f"import vol\n {symFile}")
@@ -1025,7 +1025,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             self.proj.getTmpPath(f'{symFile}.xmd'),
             f"import projection\n {symFile}",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_XMIPP3)
+            'xmipp3')
         _ = self._importVolume(
                 self.proj.getTmpPath(f'{symFile}.mrc'),
                 f"import vol\n {symFile}")
@@ -1097,7 +1097,7 @@ class TestProjectionEdit(pwtests.BaseTest):
                 self.proj.getTmpPath(f'{symFile}.xmd'),
                 f"import projection\n {symFile}",
                 ProtImportParticles,
-                ProtImportParticles.IMPORT_FROM_XMIPP3)
+                'xmipp3')
         _ = self._importVolume(
                 self.proj.getTmpPath(f'{symFile}.mrc'),
                 f"import vol\n {symFile}")
@@ -1170,7 +1170,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             setPartSqliteName,
             "import projection\n i222 sym",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_SCIPION)
+            'scipion')
 
         # launch operate set protocol
         protSetEditor = self.newProtocol(
@@ -1211,7 +1211,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             self.proj.getTmpPath(f'{symFile}.xmd'),
             f"import projection\n {symFile}",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_XMIPP3)
+            'xmipp3')
 
         _ = self._importVolume(
             self.proj.getTmpPath(f'{symFile}.mrc'),
@@ -1283,7 +1283,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             self.proj.getTmpPath(f'{symFile}.xmd'),
             f"import projection\n {symFile}",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_XMIPP3)
+            'xmipp3')
 
         _ = self._importVolume(
             self.proj.getTmpPath(f'{symFile}.mrc'),
@@ -1354,7 +1354,7 @@ class TestProjectionEdit(pwtests.BaseTest):
             self.proj.getTmpPath(f'{symFile}.xmd'),
             f"import projection\n {symFile}",
             ProtImportParticles,
-            ProtImportParticles.IMPORT_FROM_XMIPP3)
+            'xmipp3')
 
         _ = self._importVolume(
             self.proj.getTmpPath(f'{symFile}.mrc'),

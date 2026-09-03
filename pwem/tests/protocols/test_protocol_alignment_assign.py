@@ -129,7 +129,7 @@ class TestProtAssignAngles(BaseTest):
     def test_00_basicAlignment(self):
         # import first set of particles
         prot1 = self.newProtocol(emprot.ProtImportParticles,
-                                 importFrom=emprot.ProtImportParticles.IMPORT_FROM_XMIPP3,
+                                 importFrom='xmipp3',
                                  mdFile=self.xmdFileName,
                                  magnification=10000,
                                  samplingRate=1,
@@ -140,7 +140,7 @@ class TestProtAssignAngles(BaseTest):
 
         # import second set of particles
         prot2 = self.newProtocol(emprot.ProtImportParticles,
-                                 importFrom=emprot.ProtImportParticles.IMPORT_FROM_XMIPP3,
+                                 importFrom='xmipp3',
                                  mdFile=self.xmdFileName2,
                                  magnification=10000,
                                  samplingRate=1,

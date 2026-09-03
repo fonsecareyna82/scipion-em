@@ -77,7 +77,7 @@ class TestImportParticles(TestImportBase):
     def test_fromEmx(self):
         """ Import an EMX file with Particles and defocus
         """
-        args = {'importFrom': emprot.ProtImportParticles.IMPORT_FROM_EMX,
+        args = {'importFrom': 'emx',
                 'amplitudeConstrast': 0.1,
                 'sphericalAberration': 2.,
                 'voltage': 100,
@@ -101,7 +101,7 @@ class TestImportParticles(TestImportBase):
         """ Import an Xmipp file with Particles and defocus
         """
         prot1 = self.newProtocol(emprot.ProtImportParticles,
-                                 importFrom=emprot.ProtImportParticles.IMPORT_FROM_XMIPP3,
+                                 importFrom='xmipp3',
                                  mdFile=self.dsXmipp.getFile('gold/xmipp_ml2d_images.xmd'),
                                  magnification=10000,
                                  samplingRate=1,
@@ -114,7 +114,7 @@ class TestImportParticles(TestImportBase):
         """ Import an EMX file with Particles and defocus
         """
         prot1 = self.newProtocol(emprot.ProtImportParticles,
-                                 importFrom=emprot.ProtImportParticles.IMPORT_FROM_XMIPP3,
+                                 importFrom='xmipp3',
                                  mdFile=self.dsXmipp.getFile('gold/images10.xmd'),
                                  magnification=10000,
                                  samplingRate=1,
@@ -128,7 +128,7 @@ class TestImportParticles(TestImportBase):
         """
         prot1 = self.newProtocol(emprot.ProtImportParticles,
                                  objLabel='from relion (auto-refine 3d)',
-                                 importFrom=emprot.ProtImportParticles.IMPORT_FROM_RELION,
+                                 importFrom='relion',
                                  starFile=self.dsRelion.getFile('import/refine3d/extra/relion_it025_data.star'),
                                  magnification=10000,
                                  samplingRate=7.08,
@@ -143,7 +143,7 @@ class TestImportParticles(TestImportBase):
         """
         prot1 = self.newProtocol(emprot.ProtImportParticles,
                                  objLabel='from relion (classify 2d)',
-                                 importFrom=emprot.ProtImportParticles.IMPORT_FROM_RELION,
+                                 importFrom='relion',
                                  starFile=self.dsRelion.getFile('import/classify2d/extra/relion_it015_data.star'),
                                  magnification=10000,
                                  samplingRate=7.08,
@@ -183,7 +183,7 @@ class TestImportParticles(TestImportBase):
         """
         prot1 = self.newProtocol(emprot.ProtImportParticles,
                                  objLabel='from relion (classify 3d)',
-                                 importFrom=emprot.ProtImportParticles.IMPORT_FROM_RELION,
+                                 importFrom='relion',
                                  starFile=self.dsRelion.getFile('import/classify3d/extra/relion_it015_data.star'),
                                  magnification=10000,
                                  samplingRate=7.08,
@@ -199,7 +199,7 @@ class TestImportParticles(TestImportBase):
         """
         prot1 = self.newProtocol(emprot.ProtImportParticles,
                                  objLabel='from scipion (to-reconstruct)',
-                                 importFrom=emprot.ProtImportParticles.IMPORT_FROM_SCIPION,
+                                 importFrom='scipion',
                                  sqliteFile=self.dsRelion.getFile('import/case2/particles.sqlite'),
                                  magnification=10000,
                                  samplingRate=7.08,

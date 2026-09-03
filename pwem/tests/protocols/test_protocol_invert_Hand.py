@@ -130,7 +130,7 @@ class TestProtInvertHand(BaseTest):
     def test_01_autoaligment(self):
         # import first set of particles
         prot1 = self.newProtocol(emprot.ProtImportParticles,
-                                 importFrom=emprot.ProtImportParticles.IMPORT_FROM_XMIPP3,
+                                 importFrom='xmipp3',
                                  mdFile=self.xmdFileName,
                                  magnification=10000,
                                  samplingRate=1,
