@@ -796,18 +796,22 @@ class MRCImageReader(ImageReader):
 
       
 class STKImageReader(ImageReader):
-    IMG_BYTES = None
-    stk_handler = None
-    header_info = None
+    """
+    Reader for Spider/Xmipp .stk/.vol stack files.
+
+    Every method below is stateless: the open file handle and parsed header
+    for a given read live only as local variables inside that call, never as
+    attributes on the class. STKImageReader is used as a class (never
+    instantiated -- see ImageReadersRegistry), so any state stored on `cls`
+    would be shared by every concurrent call across every thread; the web
+    API renders several images from the same or different .stk files in
+    parallel, and two calls racing on a shared file handle can seek/read
+    each other's positions, corrupting results (observed as "cannot reshape
+    array of size 0" errors). Keeping all state local makes concurrent reads
+    independent and safe.
+    """
     HEADER_OFFSET = 1024
     FLOAT32_BYTES = 4
-    TYPE = None
-
-    @classmethod
-    def __init__(cls, fileName):
-        cls.stk_handler = open(fileName, "rb")
-        cls.header_info = cls.readHeader()
-        cls.IMG_BYTES = cls.FLOAT32_BYTES * cls.header_info["n_columns"] ** 2
 
     @classmethod
     def open(cls, path):
@@ -822,87 +826,83 @@ class STKImageReader(ImageReader):
     def openSlice(cls, path, slice):
         """
         Reads a given image
-           :param filename (str) --> Image to be read
+           :param path (str) --> Image to be read
+           :param slice (int) --> 1-based index of the image to read
         """
-        cls.stk_handler = open(path, "rb")
-        cls.header_info = cls.readHeader()
-        cls.IMG_BYTES = cls.FLOAT32_BYTES * cls.header_info["n_columns"] ** 2
-        image = cls.readImage(slice - 1)
-        return image
+        with open(path, "rb") as handler:
+            headerInfo = cls._readHeader(handler)
+            imgBytes = cls.FLOAT32_BYTES * headerInfo["n_columns"] ** 2
+            return cls._readImage(handler, headerInfo, imgBytes, slice - 1)
 
     @staticmethod
     def getDimensions(filePath):
+        with open(filePath, "rb") as handler:
+            headerInfo = STKImageReader._readHeader(handler)
 
-        STKImageReader.stk_handler = open(filePath, "rb")
-        STKImageReader.header_info = STKImageReader.readHeader()
-        STKImageReader.IMG_BYTES = STKImageReader.FLOAT32_BYTES * STKImageReader.header_info["n_columns"] ** 2
-        header = STKImageReader.header_info
-        return (header['n_rows'], header['n_columns'], header['n_slices'],
-                header['n_images'])
+        return (headerInfo['n_rows'], headerInfo['n_columns'], headerInfo['n_slices'],
+                headerInfo['n_images'])
 
     @classmethod
-    def readHeader(cls):
+    def _readHeader(cls, handler):
         """
-        Reads the header of the current file as a dictionary
-            :returns The current header as a dictionary
+        Reads the header from the given open file handle as a dictionary.
+            :param handler --> Open file handle, positioned anywhere (seeks internally)
+            :returns The header as a dictionary
         """
-        header = cls.readNumpy(0, cls.HEADER_OFFSET)
+        header = cls._readNumpy(handler, 0, cls.HEADER_OFFSET)
 
-        header = dict(img_size=int(header[1]), n_images=int(header[25]),
-                      offset=int(header[21]),
-                      n_rows=int(header[1]), n_columns=int(header[11]),
-                      n_slices=int(header[0]),
-                      sr=float(header[20]))
+        headerInfo = dict(img_size=int(header[1]), n_images=int(header[25]),
+                           offset=int(header[21]),
+                           n_rows=int(header[1]), n_columns=int(header[11]),
+                           n_slices=int(header[0]),
+                           sr=float(header[20]))
 
-        cls.TYPE = "stack" if header["n_images"] > 1 else "volume"
+        headerInfo["type"] = "stack" if headerInfo["n_images"] > 1 else "volume"
 
-        return header
+        return headerInfo
 
     @classmethod
-    def readNumpy(cls, start, end):
+    def _readNumpy(cls, handler, start, end):
         """
         Read bytes between start and end as a Numpy array
+            :param handler --> Open file handle to read from
             :param start (int) --> Start byte
             :param end (int) --> End byte
             :returns decoded bytes as Numpy array
         """
-        return numpy.frombuffer(cls.readBinary(start, end), dtype=numpy.float32)
+        return numpy.frombuffer(cls._readBinary(handler, start, end), dtype=numpy.float32)
 
     @classmethod
-    def readBinary(cls, start, end):
+    def _readBinary(cls, handler, start, end):
         """
         Read bytes between start and end
+            :param handler --> Open file handle to read from
             :param start (int) --> Start byte
             :param end (int) --> End byte
             :returns the bytes read
         """
-        cls.seek(start)
-        return cls.stk_handler.read(end)
+        handler.seek(start)
+        return handler.read(end)
 
     @classmethod
-    def readImage(cls, iid):
+    def _readImage(cls, handler, headerInfo, imgBytes, iid):
         """
         Reads a given image in the stack according to its ID
+            :param handler --> Open file handle to read from
+            :param headerInfo --> Header dict, as returned by _readHeader
+            :param imgBytes (int) --> Byte size of a single image
             :param iid (int) --> Image id to be read
             :returns Image as Numpy array
         """
 
-        if cls.TYPE == "stack":
-            start = 2 * cls.header_info["offset"] + iid * (
-                    cls.IMG_BYTES + cls.header_info["offset"])
+        if headerInfo["type"] == "stack":
+            start = 2 * headerInfo["offset"] + iid * (
+                    imgBytes + headerInfo["offset"])
         else:
-            start = cls.header_info["offset"] + iid * cls.IMG_BYTES
+            start = headerInfo["offset"] + iid * imgBytes
 
-        img_size = cls.header_info["n_columns"]
-        return cls.readNumpy(start, cls.IMG_BYTES).reshape([img_size, img_size])
-
-    @classmethod
-    def seek(cls, pos):
-        """
-        Move file pointer to a given position
-            :param pos (int) --> Byte to move the pointer to
-        """
-        cls.stk_handler.seek(pos)
+        img_size = headerInfo["n_columns"]
+        return cls._readNumpy(handler, start, imgBytes).reshape([img_size, img_size])
 
     @classmethod
     def getCompatibleExtensions(cls) -> list:
@@ -915,11 +915,13 @@ class STKImageReader(ImageReader):
     @classmethod
     def readAll(cls, filename):
         filename = filename.split('@')[-1]
-        dimX, dimY, dimZ, nImages = cls.getDimensions(filename)
-        if cls.TYPE == 'volume':
-            numpyStack = numpy.stack([cls.readImage(ii) for ii in range(0, dimZ, 1)])
-        else:
-            numpyStack = numpy.stack([cls.readImage(ii) for ii in range(0, nImages, 1)])
+        with open(filename, "rb") as handler:
+            headerInfo = cls._readHeader(handler)
+            imgBytes = cls.FLOAT32_BYTES * headerInfo["n_columns"] ** 2
+            count = headerInfo["n_slices"] if headerInfo["type"] == "volume" else headerInfo["n_images"]
+            numpyStack = numpy.stack([
+                cls._readImage(handler, headerInfo, imgBytes, ii) for ii in range(0, count, 1)
+            ])
 
         return numpyStack
 
