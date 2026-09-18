@@ -561,31 +561,33 @@ class ProtCTFMicrographs(ProtMicrographs):
     def _checkNewOutput(self):
         if getattr(self, 'finished', False):
             return
-        # Load previously done items (from text file)
-        doneList = self._readDoneList()
+        # Cache done ids for O(1) membership checks.
+        doneIds = getattr(self, '_doneIds', None)
+        if doneIds is None:
+            doneIds = set(self._readDoneList())
+            self._doneIds = doneIds
         if not getattr(self, '_doneListReconciled', False):
             outputCtf = getattr(self, ProtCTFMicOutputs.outputCTF.name, None)
             if outputCtf is not None:
-                doneIds = set(doneList)
                 missingDoneIds = outputCtf.getIdSet() - doneIds
                 if missingDoneIds:
                     recoveredMics = [mic for mic in self.micDict.values() if mic.getObjId() in missingDoneIds]
                     self._writeDoneList(recoveredMics)
-                    doneList.extend(mic.getObjId() for mic in recoveredMics)
+                    doneIds.update(mic.getObjId() for mic in recoveredMics)
             self._doneListReconciled = True
         # Check for newly done items
         listOfMics = self.micDict.values()
         nMics = len(listOfMics)
         newDone = [m for m in listOfMics
-                   if m.getObjId() not in doneList and self._isMicDone(m)]
+                   if m.getObjId() not in doneIds and self._isMicDone(m)]
 
         # Update the file with the newly done mics
         # or exit from the function if no new done mics
         self.debug('_checkNewOutput: ')
         self.debug('   listOfMics: %s, doneList: %s, newDone: %s'
-                   % (nMics, len(doneList), len(newDone)))
+                   % (nMics, len(doneIds), len(newDone)))
 
-        allDone = len(doneList) + len(newDone)
+        allDone = len(doneIds) + len(newDone)
         # We have finished when there is not more input mics (stream closed)
         # and the number of processed mics is equal to the number of inputs
         self.finished = self.streamClosed and allDone == nMics
@@ -596,6 +598,7 @@ class ProtCTFMicrographs(ProtMicrographs):
         if newDone:
             newDoneUpdated = self._updateOutputCTFSet(newDone, streamMode)
             self._writeDoneList(newDoneUpdated)
+            doneIds.update(mic.getObjId() for mic in newDoneUpdated)
         elif not self.finished:
             # If we are not finished and no new output have been produced
             # it does not make sense to proceed and updated the outputs
