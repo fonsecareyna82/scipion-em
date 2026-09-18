@@ -549,11 +549,17 @@ class ProtCTFMicrographs(ProtMicrographs):
         self._inputSetSignature = inputSignature
         # Open input micrographs.sqlite and close it as soon as possible
         micDict, self.streamClosed = self._loadInputList()
-        newMics = micDict.values()
+        newMics = list(micDict.values())
         outputStep = self._getFirstJoinStep()
 
         if newMics:
             fDeps = self._insertNewMicsSteps(newMics)
+            pendingMics = getattr(self, '_pendingMics', None)
+            if pendingMics is not None:
+                for mic in newMics:
+                    micId = mic.getObjId()
+                    if micId not in self._doneIds:
+                        pendingMics[micId] = mic
             if outputStep is not None:
                 outputStep.addPrerequisites(*fDeps)
             self.updateSteps()
@@ -575,11 +581,18 @@ class ProtCTFMicrographs(ProtMicrographs):
                     self._writeDoneList(recoveredMics)
                     doneIds.update(mic.getObjId() for mic in recoveredMics)
             self._doneListReconciled = True
-        # Check for newly done items
-        listOfMics = self.micDict.values()
-        nMics = len(listOfMics)
-        newDone = [m for m in listOfMics
-                   if m.getObjId() not in doneIds and self._isMicDone(m)]
+        # Keep only unfinished micrographs in the polling set.
+        pendingMics = getattr(self, '_pendingMics', None)
+        if pendingMics is None:
+            pendingMics = {}
+            for mic in self.micDict.values():
+                micId = mic.getObjId()
+                if micId not in doneIds:
+                    pendingMics[micId] = mic
+            self._pendingMics = pendingMics
+
+        nMics = len(self.micDict)
+        newDone = [mic for mic in pendingMics.values() if self._isMicDone(mic)]
 
         # Update the file with the newly done mics
         # or exit from the function if no new done mics
@@ -598,7 +611,10 @@ class ProtCTFMicrographs(ProtMicrographs):
         if newDone:
             newDoneUpdated = self._updateOutputCTFSet(newDone, streamMode)
             self._writeDoneList(newDoneUpdated)
-            doneIds.update(mic.getObjId() for mic in newDoneUpdated)
+            doneMicIds = [mic.getObjId() for mic in newDoneUpdated]
+            doneIds.update(doneMicIds)
+            for micId in doneMicIds:
+                pendingMics.pop(micId, None)
         elif not self.finished:
             # If we are not finished and no new output have been produced
             # it does not make sense to proceed and updated the outputs
