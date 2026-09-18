@@ -559,6 +559,16 @@ class ProtCTFMicrographs(ProtMicrographs):
             return
         # Load previously done items (from text file)
         doneList = self._readDoneList()
+        if not getattr(self, '_doneListReconciled', False):
+            outputCtf = getattr(self, ProtCTFMicOutputs.outputCTF.name, None)
+            if outputCtf is not None:
+                doneIds = set(doneList)
+                missingDoneIds = outputCtf.getIdSet() - doneIds
+                if missingDoneIds:
+                    recoveredMics = [mic for mic in self.micDict.values() if mic.getObjId() in missingDoneIds]
+                    self._writeDoneList(recoveredMics)
+                    doneList.extend(mic.getObjId() for mic in recoveredMics)
+            self._doneListReconciled = True
         # Check for newly done items
         listOfMics = self.micDict.values()
         nMics = len(listOfMics)
