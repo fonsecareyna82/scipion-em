@@ -28,8 +28,8 @@
 # *
 # **************************************************************************
 import enum
-from os.path import exists, getmtime
-from datetime import datetime
+import os
+from os.path import exists
 from collections import OrderedDict
 
 import pyworkflow.object as pwobj
@@ -528,21 +528,25 @@ class ProtCTFMicrographs(ProtMicrographs):
         self._checkNewInput()
         self._checkNewOutput()
 
+    @staticmethod
+    def _getInputSetSignature(localFile):
+        def _fileSignature(fileName):
+            try:
+                fileStat = os.stat(fileName)
+                return fileStat.st_mtime_ns, fileStat.st_size
+            except FileNotFoundError:
+                return None
+
+        return _fileSignature(localFile), _fileSignature(localFile + '-wal')
+
     def _checkNewInput(self):
         # Check if there are new micrographs to process from the input set
         localFile = self.getInputMicrographs().getFileName()
-        now = datetime.now()
-        self.lastCheck = getattr(self, 'lastCheck', now)
-        mTime = datetime.fromtimestamp(getmtime(localFile))
-        self.debug('Last check: %s, modification: %s'
-                   % (pwutils.prettyTime(self.lastCheck),
-                      pwutils.prettyTime(mTime)))
-        # If the input micrographs.sqlite have not changed since our last check,
-        # it does not make sense to check for new input data
-        if self.lastCheck > mTime and hasattr(self, 'listOfMics'):
+        inputSignature = self._getInputSetSignature(localFile)
+        if getattr(self, '_inputSetSignature', None) == inputSignature:
             return None
 
-        self.lastCheck = now
+        self._inputSetSignature = inputSignature
         # Open input micrographs.sqlite and close it as soon as possible
         micDict, self.streamClosed = self._loadInputList()
         newMics = micDict.values()
