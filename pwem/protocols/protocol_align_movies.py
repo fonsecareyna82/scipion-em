@@ -173,21 +173,28 @@ class ProtAlignMovies(ProtProcessMovies):
         """ Updated the output micrographs set with new items found. """
         micSet = self._loadOutputSet(emobj.SetOfMicrographs, sqliteFn)
         doneFailed = []
+        persistedIds = micSet.getIdSet()
 
         for movie in newDone:
+            movieId = movie.getObjId()
+
+            # Retry-safe aggregation: the output may have been persisted
+            # before a crash but the DONE checkpoint may not have been
+            # written yet.
+            if movieId in persistedIds:
+                continue
+
             mic = micSet.ITEM_TYPE()
             mic.copyObjId(movie)
             mic.setMicName(movie.getMicName())
-            # The subclass protocol is responsible for generating the output
-            # micrograph file in the extra path with the required name
             extraMicFn = self._getExtraPath(getOutputMicName(movie))
             mic.setFileName(extraMicFn)
             if not os.path.exists(extraMicFn):
-                print(pwutils.yellowStr("WARNING: Micrograph %s was not generated, "
-                                        "can't add it to output set." % extraMicFn))
+                print(pwutils.yellowStr(
+                    "WARNING: Micrograph %s was not generated, "
+                    "can't add it to output set." % extraMicFn))
                 doneFailed.append(movie)
                 continue
-            # Tolerate errors here. Usually here some plots are generated.
             try:
                 self._preprocessOutputMicrograph(mic, movie)
             except Exception as e:
@@ -196,55 +203,60 @@ class ProtAlignMovies(ProtProcessMovies):
                 continue
 
             micSet.append(mic)
+            persistedIds.add(movieId)
 
         self._updateOutputSet(outputName, micSet, streamMode)
         if doneFailed:
             self._writeFailedList(doneFailed)
 
         if self._firstTimeOutput:
-            # We consider that Movies are 'transformed' into the Micrographs
-            # This will allow to extend the CTF associated to a set of
-            # micrographs to another set of micrographs generated from a
-            # different movie alignment
             self._defineTransformRelation(self.inputMovies, micSet)
+
 
     def _updateOutputMovieSet(self, newDone, streamMode):
         saveMovie = self.getAttributeValue('doSaveMovie', False)
         movieSet = self._loadOutputSet(emobj.SetOfMovies, 'movies.sqlite',
                                        fixSampling=saveMovie)
+        persistedIds = movieSet.getIdSet()
 
-        # If we need to save the movies
         if saveMovie:
             movieSet.setGain(None)
             movieSet.setDark(None)
 
         for movie in newDone:
+            movieId = movie.getObjId()
+
+            # Retry-safe aggregation: the output may have been persisted
+            # before a crash but the DONE checkpoint may not have been
+            # written yet.
+            if movieId in persistedIds:
+                continue
+
             try:
                 newMovie = self._createOutputMovie(movie)
                 if newMovie.getAlignment().getShifts()[0]:
                     movieSet.append(newMovie)
+                    persistedIds.add(movieId)
                 else:
-                    print(pwutils.yellowStr("WARNING: Movie %s has empty alignment "
-                                            "data, can't add it to output set."
-                                            % movie.getFileName()))
-
-            # Warn about any exception creating the movie
+                    print(pwutils.yellowStr(
+                        "WARNING: Movie %s has empty alignment "
+                        "data, can't add it to output set."
+                        % movie.getFileName()))
             except Exception as e:
-                print(pwutils.redStr("ERROR: Movie %s couldn't be "
-                                     "added to the output set.\n%s"
-                                     % (movie.getFileName(), e)))
+                print(pwutils.redStr(
+                    "ERROR: Movie %s couldn't be "
+                    "added to the output set.\n%s"
+                    % (movie.getFileName(), e)))
 
         self._updateOutputSet(OUT_MOVIES, movieSet, streamMode)
 
         if self._firstTimeOutput:
-            # Probably is a good idea to store a cached summary for the
-            # first resulting movie of the processing.
-            self._storeSummary(newDone[0])
-            # If the movies are not written out, then dimensions can be
-            # copied from the input movies
+            if newDone:
+                self._storeSummary(newDone[0])
             if not saveMovie:
                 movieSet.setDim(self.inputMovies.get().getDim())
             self._defineTransformRelation(self.inputMovies, movieSet)
+
 
     def _updateOutputSets(self, newDone, streamMode):
         if self._createOutputMovies():
@@ -291,13 +303,7 @@ class ProtAlignMovies(ProtProcessMovies):
         self.finished = self.streamClosed and allDone == len(self.listOfMovies)
         streamMode = pwobj.Set.STREAM_CLOSED if self.finished else pwobj.Set.STREAM_OPEN
 
-        if newDone:
-            self._writeDoneList(newDone)
-
-        elif not self.finished:
-            # If we are not finished and no new output have been produced
-            # it does not make sense to proceed and updated the outputs
-            # so we exit from the function here
+        if not newDone and not self.finished:
             return
 
         self.debug('   finished: %s ' % self.finished)
@@ -306,7 +312,12 @@ class ProtAlignMovies(ProtProcessMovies):
                    % (allDone, len(self.listOfMovies)))
         self.debug('   streamMode: %s' % streamMode)
 
+        # Persist outputs before recording the aggregation checkpoint.
+        # If persistence fails, newDone remains eligible for retry on Continue.
         self._updateOutputSets(newDone, streamMode)
+
+        if newDone:
+            self._writeDoneList(newDone)
 
         if self.finished:  # Unlock createOutputStep if finished all jobs
             outputStep = self._getFirstJoinStep()

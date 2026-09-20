@@ -317,10 +317,17 @@ class ProtExtractParticles(ProtParticles):
 
     def _areAllMicsProcessed(self):
         """
-        This condition determines if the processing is complete when all the micrographs associated
-        with the input coordinates have been processed.
+        This condition determines if the processing is complete when all the
+        micrographs associated with the input coordinates have been processed.
         """
-        currentPicsMics = self.inputCoordinates.get().getUniqueValues("_micName")
+        coordsFn = self.inputCoordinates.get().getFileName()
+        coordSet = emobj.SetOfCoordinates(filename=coordsFn)
+        coordSet.loadAllProperties()
+
+        try:
+            currentPicsMics = coordSet.getUniqueValues("_micName")
+        finally:
+            coordSet.close()
 
         return len(self.micDict) == len(currentPicsMics)
 
@@ -553,11 +560,28 @@ class ProtExtractParticles(ProtParticles):
 
             outputParts.setSamplingRate(self._getNewSampling())
             outputParts.setHasCTF(self._useCTF())
+            persistedMicIds = set()
         else:
             firstTime = False
             outputParts.enableAppend()
+            storedMicIds = set(outputParts.getUniqueValues("_micId"))
+            if None in storedMicIds:
+                persistedMicIds = {
+                    particle.getMicId()
+                    for particle in outputParts
+                    if particle.getMicId() is not None
+                }
+            else:
+                persistedMicIds = storedMicIds
 
-        self.readPartsFromMics(micList, outputParts)
+        pendingMics = [
+            mic for mic in micList
+            if mic.getObjId() not in persistedMicIds
+        ]
+
+        if pendingMics:
+            self.readPartsFromMics(pendingMics, outputParts)
+
         self._updateOutputSet(outputName, outputParts, streamMode)
 
         if firstTime:

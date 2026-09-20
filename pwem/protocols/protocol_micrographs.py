@@ -682,15 +682,23 @@ class ProtCTFMicrographs(ProtMicrographs):
         if firstTime:
             outputCtf = self._createSetOfCTF()
             outputCtf.setMicrographs(self.getInputMicrographsPointer())
+            persistedMicIds = set()
         else:
             outputCtf.enableAppend()
+            persistedMicIds = outputCtf.getIdSet()
 
         for micFn, mic in self._iterMicrographs(micList):
+            if mic.getObjId() in persistedMicIds:
+                continue
+
             try:
                 ctf = self._createCtfModel(mic)
                 outputCtf.append(ctf)
+                persistedMicIds.add(mic.getObjId())
             except Exception as ex:
-                print(pwutils.yellowStr("Missing CTF?: Couldn't update CTF set with mic: %s" % micFn))
+                print(pwutils.yellowStr(
+                    "Missing CTF?: Couldn't update CTF set with mic: %s"
+                    % micFn))
                 doneFailed.append(mic)
 
         self.debug(" _updateOutputCTFSet Stream Mode: %s " % streamMode)
@@ -699,9 +707,6 @@ class ProtCTFMicrographs(ProtMicrographs):
             self._writeFailedList(doneFailed)
 
         if firstTime:  # define relation just once
-            # Using a pointer to define the relations is more robust to
-            # scheduling and id changes between the protocol run.db and
-            # the main project database.get
             self._defineCtfRelation(self.getInputMicrographsPointer(),
                                     outputCtf)
 

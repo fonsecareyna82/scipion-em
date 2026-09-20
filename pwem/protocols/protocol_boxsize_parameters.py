@@ -58,8 +58,6 @@ class ProtBoxSizeParameters(EMProtocol):
                         NUM_PART_IMG_TOPAZ: Integer,
                         RADIUS_CONSENSUS: Integer}
 
-    outputsToDefine = {}
-
     def __init__(self, **args):
         EMProtocol.__init__(self, **args)
 
@@ -191,42 +189,31 @@ class ProtBoxSizeParameters(EMProtocol):
 
     def _insertAllSteps(self):
         self.initParams()
-        self._checkNewInput()
+        boxSize = self.boxSize.get()
+        samplingRate = self.inputMicrographs.get().getSamplingRate()
+        self._insertFunctionStep('applyFormulaStep', boxSize, samplingRate, prerequisites=[])
 
     def initParams(self):
-        self.outputDone = False
+        self.outputsToDefine = {}
 
     def createOutput(self, modifiedSet):
         pass
 
     def _stepsCheck(self):
-        self._checkNewInput()
-        self._checkNewOutput()
+        pass
 
     def _checkNewInput(self):
-        if hasattr(self, 'samplingRate') and hasattr(self, 'boxSize'):
-            return None
-
-        self.boxSize = self.boxSize.get()
-        self.samplingRate = self.inputMicrographs.get().getSamplingRate()
-        fDeps = self._insertNewOperationsStep(self.boxSize, self.samplingRate)
-        self.updateSteps()
-
-    def _insertNewOperationsStep(self, boxSize, samplingRate):
-        deps = []
-        stepId = self._insertFunctionStep('applyFormulaStep', boxSize, samplingRate, prerequisites=[])
-        deps.append(stepId)
-        return deps
+        return None
 
     def _checkNewOutput(self):
-        if self.outputDone:
-            self.createResultsOutput()
+        return None
 
     def applyFormulaStep(self, boxSize, samplingRate):
         """
         Applies the formula to each of the parameters selected by the user.
         """
 
+        self.outputsToDefine = {}
         self.registerEvenBoxSize(boxSize)
 
         if self.boolExtractPartBx.get():
@@ -244,7 +231,7 @@ class ProtBoxSizeParameters(EMProtocol):
         if self.boolConsensusParams.get():
             self.calculateConsensusParams(boxSize)
 
-        self.outputDone = True
+        self.createResultsOutput()
 
     def registerOutput(self, outputName, value):
         self.outputsToDefine[outputName] = value

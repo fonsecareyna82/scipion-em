@@ -82,21 +82,55 @@ class ProtExtractCoords(ProtParticlePickingAuto):
         form.addParallelSection(threads=0, mpi=0)
 
     # --------------------------- INSERT steps functions ----------------------
+    def _wasStreamingRun(self):
+        """Return whether the previous execution was a streaming run."""
+        if not self.isContinued():
+            return False
+
+        for step in self.loadSteps():
+            funcName = step.funcName
+            if hasattr(funcName, 'get'):
+                funcName = funcName.get()
+
+            if funcName == 'extractCoordsStep':
+                return True
+
+            if (
+                funcName == 'createOutputStep'
+                and hasattr(step, 'isWaiting')
+                and step.isWaiting()
+            ):
+                return True
+
+        return False
+
     def _insertAllSteps(self):
-        self.streamingModeOn = self.getInputParticles().isStreamOpen()
+        # On Continue, preserve the execution mode of the original run.
+        # The producer may have closed its Set after this protocol stopped,
+        # so the current input stream state alone is not enough to decide.
+        self.streamingModeOn = (
+            self.getInputParticles().isStreamOpen()
+            or self._wasStreamingRun()
+        )
 
         if self.streamingModeOn:
+            # Rebuild streaming state from durable data. On Continue the
+            # in-memory counters and caches from the previous process are gone.
+            self.partsDone = self._getProcessedParticleIds()
+            self.partsScheduled = set(self.partsDone)
+            self.outputSize = len(self.partsDone)
             self.inputSize = 0
-            self.outputSize = 0
-            self.micsDone = []
 
             t0 = time.time()
             newParts, self.streamClosed = self.loadInputs()
             print("loadInputs() time: %fs" % (time.time() - t0))
 
             stepsIds = self._insertNewSteps(newParts)
-            self._insertFunctionStep('createOutputStep',
-                                     prerequisites=stepsIds, wait=True)
+            self._insertFunctionStep(
+                'createOutputStep',
+                prerequisites=stepsIds,
+                wait=True,
+            )
         else:
             self._insertFunctionStep('createOutputStep')
 
@@ -224,23 +258,44 @@ class ProtExtractCoords(ProtParticlePickingAuto):
 
         streamMode = emobj.Set.STREAM_CLOSED if self.finished else emobj.Set.STREAM_OPEN
 
-        # we will read all ready files
+        # Read all ready temporary coordinate sets.
         files = pwutils.glob(self.getTmpOutputPath('*'))
         newData = len(files) > 0
         lastToClose = self.finished and hasattr(self, 'outputCoordinates')
         if newData or lastToClose:
             outSet = self._loadOutputSet()
+            filesToClean = []
+
             if newData:
+                outputIds = outSet.getIdSet()
+
+                def _isNewCoordinate(item):
+                    itemId = item.getObjId()
+                    if itemId in outputIds or not item.isEnabled():
+                        return False
+                    outputIds.add(itemId)
+                    return True
+
                 for tmpFile in files:
                     tmpSet = emobj.SetOfCoordinates(filename=tmpFile)
                     tmpSet.loadAllProperties()
-                    outSet.copyItems(tmpSet)
+                    outSet.copyItems(
+                        tmpSet,
+                        itemSelectedCallback=_isNewCoordinate,
+                    )
                     outSet.setBoxSize(tmpSet.getBoxSize())
 
                     tmpSet.close()
-                    pwutils.cleanPath(tmpFile)
+                    filesToClean.append(tmpFile)
 
+            # Persist the merged output before deleting any temporary
+            # checkpoint. If persistence fails, the tmp files remain and can
+            # be safely retried on Continue. If cleanup fails after
+            # persistence, duplicate objIds are filtered on the next retry.
             self._updateOutputSet('outputCoordinates', outSet, state=streamMode)
+
+            for tmpFile in filesToClean:
+                pwutils.cleanPath(tmpFile)
 
         if self.finished:  # Unlock createOutputStep if finished all jobs
             outputStep = self._getFirstJoinStep()
@@ -291,14 +346,35 @@ class ProtExtractCoords(ProtParticlePickingAuto):
     def getTmpOutputPath(self, suffix):
         return self._getPath("coordinates%s.sqlite" % self.getSuffix(suffix))
 
+    def _getProcessedParticleIds(self):
+        """Return particle ids already materialized in output or tmp sets."""
+        processedIds = set()
+
+        outputCoords = getattr(self, 'outputCoordinates', None)
+        if outputCoords is not None:
+            outputFile = outputCoords.getFileName()
+            if outputFile:
+                outputSet = emobj.SetOfCoordinates(filename=outputFile)
+                outputSet.loadAllProperties()
+                processedIds.update(outputSet.getIdSet())
+                outputSet.close()
+
+        for tmpFile in pwutils.glob(self.getTmpOutputPath('*')):
+            tmpSet = emobj.SetOfCoordinates(filename=tmpFile)
+            tmpSet.loadAllProperties()
+            processedIds.update(tmpSet.getIdSet())
+            tmpSet.close()
+
+        return processedIds
+
     def loadInputs(self):
         micsFn = self.getInputMicrographs().getFileName()
         micsSet = emobj.SetOfMicrographs(filename=micsFn)
         micsSet.loadAllProperties()
 
-        availableMics = []
+        availableMics = set()
         for mic in micsSet:
-            availableMics.append(mic.getObjId())
+            availableMics.add(mic.getObjId())
 
         micsSetClosed = micsSet.isStreamClosed()
         micsSet.close()
@@ -307,15 +383,26 @@ class ProtExtractCoords(ProtParticlePickingAuto):
         partsSet = emobj.SetOfParticles(filename=partsFn)
         partsSet.loadAllProperties()
 
+        # Track particles, not micrographs. A streaming producer may publish
+        # additional particles for a micrograph that was already seen.
+        scheduledParts = getattr(
+            self,
+            'partsScheduled',
+            set(getattr(self, 'partsDone', set())),
+        )
+        self.partsScheduled = scheduledParts
+
         newParts = []
-        newMics = []
         for item in partsSet:
+            partId = item.getObjId()
             micKey = item.getCoordinate().getMicId()
-            if micKey not in self.micsDone and micKey in availableMics:
-                newParts.append(item.getObjId())
-                if micKey not in self.micsDone:
-                    newMics.append(micKey)
-        self.micsDone += newMics
+            if (
+                partId not in self.partsScheduled
+                and micKey in availableMics
+            ):
+                newParts.append(partId)
+                self.partsScheduled.add(partId)
+
         self.inputSize = partsSet.getSize()
         partSetClosed = partsSet.isStreamClosed()
         partsSet.close()

@@ -42,9 +42,6 @@ class ProtBoxSizeCheckpoint(EMProtocol):
 
     _label = 'box size checkpoint'
     _possibleOutputs = {BOXSIZE: Integer}
-    outputsToDefine = {}
-
-
     def __init__(self, **args):
         EMProtocol.__init__(self, **args)
 
@@ -98,36 +95,30 @@ class ProtBoxSizeCheckpoint(EMProtocol):
 
     def _insertAllSteps(self):
         self.initParams()
-        self._checkNewInput()
+        boxSize1 = self.boxSize1.get()
+        boxSize2 = self.boxSize2.get()
+        prerequisites = []
+
+        if self.boolTimer.get():
+            waitStepId = self._insertFunctionStep('waitingStep', prerequisites=[])
+            prerequisites = [waitStepId]
+
+        self._insertFunctionStep('publishComparisonStep', boxSize1, boxSize2, prerequisites=prerequisites)
 
     def initParams(self):
-        self.outputDone = False
+        self.outputsToDefine = {}
 
     def createOutput(self, modifiedSet):
         pass
 
     def _stepsCheck(self):
-        self._checkNewInput()
-        self._checkNewOutput()
+        pass
 
     def _checkNewInput(self):
-        if self.outputDone:
-            return None
-
-        boxSize1 = self.boxSize1.get()
-        boxSize2 = self.boxSize2.get()
-        fDeps = self._insertNewOperationsStep(boxSize1, boxSize2)
-        self.updateSteps()
-
-    def _insertNewOperationsStep(self, boxSize1, boxSize2):
-        deps = []
-        stepId = self._insertFunctionStep('applyComparisonStep', boxSize1, boxSize2, prerequisites=[])
-        deps.append(stepId)
-        return deps
+        return None
 
     def _checkNewOutput(self):
-        if self.outputDone:
-            self.createResultsOutput()
+        return None
 
     def applyComparisonStep(self, boxSize1, boxSize2):
         """
@@ -161,11 +152,12 @@ class ProtBoxSizeCheckpoint(EMProtocol):
                 boxSize = np.mean([boxSize1, boxSize2])
                 self.info("Using average box size %d" % boxSize)
 
-        if self.boolTimer.get():
-            self._insertFunctionStep(self.waitingStep)
-
         self.registerEvenBoxSize(boxSize)
-        self.outputDone = True
+
+    def publishComparisonStep(self, boxSize1, boxSize2):
+        self.outputsToDefine = {}
+        self.applyComparisonStep(boxSize1, boxSize2)
+        self.createResultsOutput()
 
     def waitingStep(self):
         lastTimeCheck = 0

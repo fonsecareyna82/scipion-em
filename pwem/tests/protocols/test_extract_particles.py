@@ -7,6 +7,34 @@ from pwem.tests.utils import getSoCTFsMock, getSoMMock
 
 class TestExtractParticles(unittest.TestCase):
 
+    def test_AreAllMicsProcessedReloadsLogicalCoordinateSet(self):
+        protocol = ProtExtractParticles()
+        protocol.micDict = {"mic1": MagicMock()}
+
+        staleCoords = MagicMock()
+        staleCoords.getFileName.return_value = "/tmp/coordinates.sqlite"
+        staleCoords.getUniqueValues.return_value = ["mic1"]
+
+        protocol.inputCoordinates = MagicMock()
+        protocol.inputCoordinates.get.return_value = staleCoords
+
+        freshCoords = MagicMock()
+        freshCoords.getUniqueValues.return_value = ["mic1", "mic2"]
+
+        with patch(
+            "pwem.protocols.protocol_particles.emobj.SetOfCoordinates",
+            return_value=freshCoords,
+        ):
+            allProcessed = protocol._areAllMicsProcessed()
+
+        self.assertFalse(
+            allProcessed,
+            "Completion must be checked against a freshly reloaded logical "
+            "coordinate Set, not the Pointer snapshot.",
+        )
+        freshCoords.loadAllProperties.assert_called_once_with()
+        freshCoords.close.assert_called_once_with()
+
     def test_simpleLoadInputList(self):
 
         self.assertLoadInputList((1, 3),

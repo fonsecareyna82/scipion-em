@@ -449,11 +449,29 @@ class ProtParticlePickingAuto(ProtParticlePicking):
         if firstTime:
             micSetPtr = self.getInputMicrographsPointer()
             outputCoords = self._createSetOfCoordinates(micSetPtr)
+            persistedMicIds = set()
         else:
             outputCoords.enableAppend()
+            storedMicIds = set(outputCoords.getUniqueValues("_micId"))
+            if None in storedMicIds:
+                persistedMicIds = {
+                    coord.getMicId()
+                    for coord in outputCoords
+                    if coord.getMicId() is not None
+                }
+            else:
+                persistedMicIds = storedMicIds
 
-        self.info("Reading coordinates from mics: %s" % ','.join([mic.strId() for mic in micList]))
-        self.readCoordsFromMics(outputDir, micDoneList, outputCoords)
+        pendingMics = [
+            mic for mic in micDoneList
+            if mic.getObjId() not in persistedMicIds
+        ]
+
+        self.info("Reading coordinates from mics: %s"
+                  % ','.join([mic.strId() for mic in pendingMics]))
+        if pendingMics:
+            self.readCoordsFromMics(outputDir, pendingMics, outputCoords)
+
         self.debug(" _updateOutputCoordSet Stream Mode: %s " % streamMode)
         outputCoords.setObjComment(self.getSummary(outputCoords))
         self._updateOutputSet(outputName, outputCoords, streamMode)
@@ -462,6 +480,8 @@ class ProtParticlePickingAuto(ProtParticlePicking):
             self._defineSourceRelation(self.getInputMicrographsPointer(),
                                        outputCoords)
 
+        # All ready mics are safe to checkpoint after successful persistence:
+        # some may already have been persisted by a previous crashed attempt.
         return micDoneList
 
     def _updateStreamState(self, streamMode):
