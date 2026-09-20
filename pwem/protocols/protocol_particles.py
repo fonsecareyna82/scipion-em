@@ -462,42 +462,10 @@ class ProtExtractParticles(ProtParticles):
     def _checkNewInput(self):
         self.debug(">>> _checkNewInput ")
 
-        def _modificationTime():
-            """ Check the last modification time of any of the three possible
-             input files. """
-            items = [self.inputCoordinates.get()]
-
-            if self._micsOther():
-                items.append(self.inputMicrographs.get())
-            else:
-                items.append(self.inputCoordinates.get().getMicrographs())
-
-            if self._useCTF():
-                items.append(self.ctfRelations.get())
-
-            def _mTime(fn):
-                return datetime.fromtimestamp(os.path.getmtime(fn))
-
-            return max([_mTime(i.getFileName()) for i in items])
-
-        mTime = _modificationTime()
-        now = datetime.now()
-        self.lastCheck = getattr(self, 'lastCheck', now)
-        self.debug('Last check: %s, modification: %s'
-                   % (pwutils.prettyTime(self.lastCheck),
-                      pwutils.prettyTime(mTime)))
-        # If the input micrographs.sqlite have not changed since our last check,
-        # it does not make sense to check for new input data, but we must
-        # check if sets are closed.
-        self.debug("self.lastCheck > mTime %s , hasattr(self, 'micDict') %s"
-                   % (self.lastCheck > mTime, hasattr(self, 'micDict')))
-        if self.lastCheck > mTime and hasattr(self, 'micDict'):
-            return None
-
-        # Open input micrographs.sqlite and close it as soon as possible
+        # Always reload the logical Sets. A PostgreSQL-backed streaming Set
+        # may change without changing the compatibility SQLite file mtime.
         newMics = self._loadInputList()
 
-        self.lastCheck = now
         outputStep = self._getFirstJoinStep()
 
         if newMics:

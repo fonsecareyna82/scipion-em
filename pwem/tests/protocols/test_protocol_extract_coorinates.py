@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 from pwem.protocols import ProtExtractCoords
 from pwem.tests.utils import getSoPartMock, getSoMMock, getMicNameFromId
@@ -6,6 +7,33 @@ from pwem.tests.utils import getSoPartMock, getSoMMock, getMicNameFromId
 
 class TestExtractCoordinates(unittest.TestCase):
     """ Tests extract coordinates protocol mocking some behaviour"""
+
+    def test_CheckNewInputReloadsLogicalSetsWhenPhysicalMtimeIsUnchanged(self):
+        protocol = ProtExtractCoords()
+        protocol.streamingModeOn = True
+        protocol.lastCheck = datetime.now()
+        protocol._getFirstJoinStep = unittest.mock.Mock(return_value=None)
+
+        particles = unittest.mock.MagicMock()
+        particles.getFileName.return_value = "/tmp/particles.sqlite"
+
+        micrographs = unittest.mock.MagicMock()
+        micrographs.getFileName.return_value = "/tmp/micrographs.sqlite"
+
+        protocol.getInputParticles = unittest.mock.Mock(return_value=particles)
+        protocol.getInputMicrographs = unittest.mock.Mock(return_value=micrographs)
+
+        with patch(
+            "pwem.protocols.protocol_extract_coordinates.os.path.getmtime",
+            return_value=0,
+        ), patch.object(
+            protocol,
+            "loadInputs",
+            return_value=([], False),
+        ) as loadInputs:
+            protocol._checkNewInput()
+
+        loadInputs.assert_called_once_with()
 
     def test_extractCoordinatesById(self):
         """ Tests ProtExtractCoords.extractCoordinates method using mic id for matching"""

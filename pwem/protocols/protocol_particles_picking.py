@@ -353,21 +353,8 @@ class ProtParticlePickingAuto(ProtParticlePicking):
         return self._loadMics(self.getInputMicrographs())
 
     def _checkNewInput(self):
-        # Check if there are new micrographs to process from the input set
-        localFile = self.getInputMicrographs().getFileName()
-        now = datetime.now()
-        self.lastCheck = getattr(self, 'lastCheck', now)
-        mTime = datetime.fromtimestamp(os.path.getmtime(localFile))
-        self.debug('Last check: %s, modification: %s'
-                   % (pwutils.prettyTime(self.lastCheck),
-                      pwutils.prettyTime(mTime)))
-        # If the input micrographs.sqlite have not changed since our last check,
-        # it does not make sense to check for new input data
-        if self.lastCheck > mTime and hasattr(self, 'listOfMics'):
-            return None
-
-        self.lastCheck = now
-        # Open input micrographs.sqlite and close it as soon as possible
+        # Always reload the logical Set. A PostgreSQL-backed streaming Set
+        # may change without changing the compatibility SQLite file mtime.
         micDict, self.streamClosed = self._loadInputList()
         newMics = micDict.values()
         outputStep = self._getFirstJoinStep()

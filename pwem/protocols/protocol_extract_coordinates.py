@@ -29,7 +29,6 @@
 import os
 import numpy as np
 import time
-from datetime import datetime
 
 import pyworkflow.protocol.params as params
 from pyworkflow.protocol.constants import STATUS_NEW
@@ -120,19 +119,8 @@ class ProtExtractCoords(ProtParticlePickingAuto):
             pass
 
     def _checkNewInput(self):
-        # Check if there are new particles to process from the input set
-        partsFile = self.getInputParticles().getFileName()
-        micsFile = self.getInputMicrographs().getFileName()
-        now = datetime.now()
-        self.lastCheck = getattr(self, 'lastCheck', now)
-        mTimeParts = datetime.fromtimestamp(os.path.getmtime(partsFile))
-        mTimeMics = datetime.fromtimestamp(os.path.getmtime(micsFile))
-        # If the input movies.sqlite have not changed since our last check,
-        # it does not make sense to check for new input data
-        if self.lastCheck > mTimeParts and self.lastCheck > mTimeMics:
-            return None
-        self.lastCheck = now
-
+        # Always reload the logical Sets. PostgreSQL-backed streaming Sets
+        # may change without changing the compatibility SQLite file mtime.
         newParts, self.streamClosed = self.loadInputs()
 
         if len(newParts) > 0:

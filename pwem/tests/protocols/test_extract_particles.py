@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
 from pwem.protocols.protocol_particles import ProtExtractParticles
 from pwem.tests.utils import getSoCTFsMock, getSoMMock
@@ -98,6 +99,38 @@ class TestExtractParticles(unittest.TestCase):
                                  0, "Extraction of mics, != others and != ctfs does not work.",
                                  micOthers=(4, 8),
                                  ctfs=(9, 12))
+
+    def test_CheckNewInputReloadsLogicalSetWhenPhysicalMtimeIsUnchanged(self):
+        extractParticles = ProtExtractParticles()
+        extractParticles.micDict = {}
+        extractParticles.lastCheck = datetime.now()
+        extractParticles._micsOther = Mock(return_value=False)
+        extractParticles._useCTF = Mock(return_value=False)
+        extractParticles._getFirstJoinStep = Mock(return_value=None)
+
+        coordSet = MagicMock()
+        coordSet.getFileName.return_value = "/tmp/coords.sqlite"
+
+        micSet = MagicMock()
+        micSet.getFileName.return_value = "/tmp/mics.sqlite"
+
+        coordSet.getMicrographs.return_value = micSet
+
+        inputCoordinates = MagicMock()
+        inputCoordinates.get.return_value = coordSet
+        extractParticles.inputCoordinates = inputCoordinates
+
+        with patch(
+            "pwem.protocols.protocol_particles.os.path.getmtime",
+            return_value=0,
+        ), patch.object(
+            extractParticles,
+            "_loadInputList",
+            return_value={},
+        ) as loadInputList:
+            extractParticles._checkNewInput()
+
+        loadInputList.assert_called_once_with()
 
     def assertLoadInputList(self, mics, expectedMicSize, msg, micOthers=None, ctfs=None):
         """ Asserts particle extraction using ctfs
