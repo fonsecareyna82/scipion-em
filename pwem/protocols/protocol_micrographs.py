@@ -540,14 +540,9 @@ class ProtCTFMicrographs(ProtMicrographs):
         return _fileSignature(localFile), _fileSignature(localFile + '-wal')
 
     def _checkNewInput(self):
-        # Check if there are new micrographs to process from the input set
-        localFile = self.getInputMicrographs().getFileName()
-        inputSignature = self._getInputSetSignature(localFile)
-        if getattr(self, '_inputSetSignature', None) == inputSignature:
-            return None
-
-        self._inputSetSignature = inputSignature
-        # Open input micrographs.sqlite and close it as soon as possible
+        # Always reload the logical Set. With PostgreSQL persistence the
+        # compatibility SQLite/WAL files may keep the same physical signature
+        # while the persisted Set has already changed.
         micDict, self.streamClosed = self._loadInputList()
         newMics = list(micDict.values())
         outputStep = self._getFirstJoinStep()

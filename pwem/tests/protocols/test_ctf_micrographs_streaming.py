@@ -21,18 +21,27 @@ class TestCTFMicrographsStreaming(unittest.TestCase):
         inputPointer.get.return_value = inputMics
         protocol.inputMicrographs = inputPointer
 
+        fileStat = MagicMock()
+        fileStat.st_mtime_ns = 123
+        fileStat.st_size = 456
+
         with patch(
-            "pwem.protocols.protocol_micrographs.getmtime",
-            return_value=0,
-            create=True,
+            "pwem.protocols.protocol_micrographs.os.stat",
+            return_value=fileStat,
         ), patch.object(
             protocol,
             "_loadInputList",
             return_value=({}, False),
         ) as loadInputList:
             protocol._checkNewInput()
+            protocol._checkNewInput()
 
-        loadInputList.assert_called_once_with()
+        self.assertEqual(
+            2,
+            loadInputList.call_count,
+            "Logical Set state must be reloaded even when the compatibility "
+            "SQLite/WAL physical signature is unchanged.",
+        )
 
 
 if __name__ == "__main__":

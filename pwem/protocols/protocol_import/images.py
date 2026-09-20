@@ -192,15 +192,20 @@ class ProtImportImages(ProtImportFiles):
         imgSet = self._getOutputSet() if self.isContinued() else None
         
         self.importedFiles = set()
+        self.importedLocations = set()
         if imgSet is None:
             createSetFunc = getattr(self, '_create' + self._outputClassName)
             imgSet = createSetFunc()
-        elif imgSet.getSize() > 0:  # in case of continue
+        else:  # in case of continue
             imgSet.loadAllProperties()
             self._fillImportedFiles(imgSet)
             imgSet.enableAppend()
-            if self.stopStreamingFileExists():
-                os.remove(self._getStopStreamingFilename()) # Remove stop streaming file if the import was not truly finished
+
+        if self.isContinued() and self.stopStreamingFileExists():
+            # A STOP_STREAMING marker belongs to the previous execution.
+            # It must not make a resumed import stop immediately, even when
+            # the persisted output Set exists but is still empty.
+            os.remove(self._getStopStreamingFilename())
         
         pointerExcludedMovs = getattr(self, 'moviesToExclude', None)
         if pointerExcludedMovs is not None:
@@ -265,12 +270,18 @@ class ProtImportImages(ProtImportFiles):
                     imgSet.enableAppend()
 
                 if n > 1:
+                    stackName = os.path.basename(dst)
                     for index in range(1, n+1):
+                        location = (index, stackName)
+                        if location in self.importedLocations:
+                            continue
+
                         img.cleanObjId()
                         img.setMicId(fileId)
                         img.setFileName(dst)
                         img.setIndex(index)
                         self._addImageToSet(img, imgSet)
+                        self.importedLocations.add(location)
                 else:
                     img.setObjId(fileId)
                     img.setFileName(dst)
@@ -491,9 +502,31 @@ class ProtImportImages(ProtImportFiles):
 
     def _fillImportedFiles(self, imgSet):
         from pwem.objects import SetOfMicrographsBase
-        if isinstance(imgSet, SetOfMicrographsBase):
-            for img in imgSet:
-                self.importedFiles.add(img.getMicName())
+
+        if imgSet is None:
+            return
+
+        if not hasattr(self, 'importedLocations'):
+            self.importedLocations = set()
+
+        isMicSet = isinstance(imgSet, SetOfMicrographsBase)
+        for img in imgSet:
+            if isMicSet:
+                micName = img.getMicName()
+                if micName:
+                    self.importedFiles.add(micName)
+
+            fileName = img.getFileName()
+            if not fileName:
+                continue
+
+            baseName = os.path.basename(fileName)
+            index = img.getIndex()
+
+            if not isMicSet and isinstance(index, int) and index > 0:
+                self.importedLocations.add((index, baseName))
+            else:
+                self.importedFiles.add(baseName)
 
     def _fillMicName(self, img, uniqueFn):
         from pwem.objects import Micrograph

@@ -179,8 +179,17 @@ class ProtCreateStreamData(EMProtocol):
         update the output set. """
         objDict = {}
         newObj = False
+        maxObjId = 0
         for obj in objSet:
             objDict[obj.getFileName()] = True
+            objId = obj.getObjId()
+            if objId is not None:
+                maxObjId = max(maxObjId, objId)
+
+        # Rebuild the runtime counter from durable output state. On Continue,
+        # _insertAllSteps resets the in-memory counter, while previously
+        # persisted objects keep their original ids.
+        self.counter = max(self.counter, maxObjId)
 
         if objDict:
             if objSet.getSize():
@@ -282,10 +291,12 @@ class ProtCreateStreamData(EMProtocol):
             self.nDims = self.nDim.get()
         endObjs = newObjSet.getSize() == self.nDims
 
-        if newObj:
-            if endObjs:
-                newObjSet.setStreamState(newObjSet.STREAM_CLOSED)
+        if endObjs:
+            newObjSet.setStreamState(newObjSet.STREAM_CLOSED)
+
+        if newObj or endObjs:
             self._updateOutput(newObjSet)
+
         newObjSet.close()
 
     def createStep(self, counter):
@@ -349,11 +360,19 @@ class ProtCreateStreamData(EMProtocol):
             self._defineOutputs(outputCoordinates=self.outputCoordinates)
             self._defineSourceRelation(inputCoordinates, self.outputCoordinates)
 
+        persistedCoordIds = self.outputCoordinates.getIdSet()
+
         for idx, mic in enumerate(micrographs):
             if idx == micIdx - 1:
                 newMic = mic.clone()
                 for newCoord in self.inputCoordinates.get().iterCoordinates(newMic):
+                    coordId = newCoord.getObjId()
+                    if coordId in persistedCoordIds:
+                        continue
+
                     self.outputCoordinates.append(newCoord)
+                    persistedCoordIds.add(coordId)
+
                 if micIdx == self.nDims:
                     self.outputCoordinates.setStreamState(emobj.SetOfParticles.STREAM_CLOSED)
                 self.outputCoordinates.write()
