@@ -497,7 +497,10 @@ class ProtImportImages(ProtImportFiles):
         for fileName, fileId in self.iterFiles():
             # If file already imported or blacklisted,  skip it
             uniqueFn = self._getUniqueFileName(fileName)
-            if (uniqueFn not in self.importedFiles) and (not self.isBlacklisted(fileName)):
+            sanitizedFn, _ = cleanFileName(uniqueFn, warn=False)
+            alreadyImported = (uniqueFn in self.importedFiles or
+                               sanitizedFn in self.importedFiles)
+            if not alreadyImported and not self.isBlacklisted(fileName):
                 yield fileName, uniqueFn, fileId
 
     def _fillImportedFiles(self, imgSet):

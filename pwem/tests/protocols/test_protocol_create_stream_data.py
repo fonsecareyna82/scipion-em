@@ -183,6 +183,41 @@ class TestCreateStreamResumeSafety(unittest.TestCase):
             "selecting the next batch.",
         )
 
+    def test_CreateCoordinatesStepReloadsPersistedOutputBeforeAppend(self):
+        protocol = emprot.ProtCreateStreamData(
+            setof=SET_OF_COORDINATES
+        )
+        protocol.nDims = 2
+        protocol.getTimeInterval = MagicMock(return_value=0)
+
+        mic = MagicMock()
+        micrographs = MagicMock()
+        micrographs.__iter__.return_value = iter([mic])
+
+        newCoord = MagicMock()
+        newCoord.getObjId.return_value = 102
+
+        inputCoordinates = MagicMock()
+        inputCoordinates.getMicrographs.return_value = micrographs
+        inputCoordinates.iterCoordinates.return_value = iter([newCoord])
+
+        protocol.inputCoordinates = MagicMock()
+        protocol.inputCoordinates.get.return_value = inputCoordinates
+
+        outputCoordinates = MagicMock()
+        outputCoordinates.getIdSet.return_value = set()
+        protocol.outputCoordinates = outputCoordinates
+
+        def assertOutputReadyBeforeAppend(coord):
+            outputCoordinates.loadAllProperties.assert_called_once_with()
+            outputCoordinates.enableAppend.assert_called_once_with()
+
+        outputCoordinates.append.side_effect = assertOutputReadyBeforeAppend
+
+        protocol.createCoordinatesStep(1)
+
+        outputCoordinates.append.assert_called_once_with(newCoord)
+
 
 class TestCreateStreamRandomMicrographs(BaseTest):
     """ ProtCreateStreamData's SET_OF_RANDOM_MICROGRAPHS mode generates its

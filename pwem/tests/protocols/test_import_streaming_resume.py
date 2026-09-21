@@ -261,6 +261,38 @@ class TestImportStreamingResumeSafety(unittest.TestCase):
         outputSet.loadAllProperties.assert_called_once_with()
         outputSet.enableAppend.assert_called_once_with()
 
+    def test_IterNewInputFilesMatchesPersistedSanitizedFileName(self):
+        protocol = ProtImportImages()
+        protocol.importedFiles = set()
+        protocol.importedLocations = set()
+
+        persistedParticle = MagicMock()
+        persistedParticle.getFileName.return_value = (
+            "/project/extra/particle1.mrc"
+        )
+        persistedParticle.getIndex.return_value = 0
+
+        particleSet = MagicMock()
+        particleSet.__iter__.return_value = iter([persistedParticle])
+
+        protocol._fillImportedFiles(particleSet)
+        protocol.iterFiles = Mock(
+            return_value=iter([
+                ("/data/particle(1).mrc", 7),
+            ])
+        )
+        protocol._getUniqueFileName = Mock(
+            return_value="particle(1).mrc"
+        )
+        protocol.isBlacklisted = Mock(return_value=False)
+
+        self.assertEqual(
+            [],
+            list(protocol.iterNewInputFiles()),
+            "Continue must match the original input name against the "
+            "sanitized filename already persisted in the output Set.",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

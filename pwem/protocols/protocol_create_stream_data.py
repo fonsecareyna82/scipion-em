@@ -364,6 +364,9 @@ class ProtCreateStreamData(EMProtocol):
             self.outputCoordinates.setStreamState(emobj.SetOfParticles.STREAM_OPEN)
             self._defineOutputs(outputCoordinates=self.outputCoordinates)
             self._defineSourceRelation(inputCoordinates, self.outputCoordinates)
+        else:
+            self.outputCoordinates.loadAllProperties()
+            self.outputCoordinates.enableAppend()
 
         persistedCoordIds = self.outputCoordinates.getIdSet()
 
