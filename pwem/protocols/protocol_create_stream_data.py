@@ -336,6 +336,11 @@ class ProtCreateStreamData(EMProtocol):
         self.name = "particle"
         time.sleep(self.getTimeInterval())
 
+        # Rebuild the runtime counter from the durable output before deciding
+        # which particle batch this step must create. On Continue,
+        # _insertAllSteps resets self.counter while finished steps are skipped.
+        self._checkProcessedData()
+
         for idx, p in enumerate(self.inputParticles.get()):
             if ((idx > self.counter-1) and (idx < self.nDims) and
                     (idx <= self.counter-1 + self.group)):

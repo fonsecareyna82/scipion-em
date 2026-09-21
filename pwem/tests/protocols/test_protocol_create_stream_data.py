@@ -26,7 +26,10 @@ from unittest.mock import MagicMock, patch
 from pyworkflow.tests import BaseTest, setupTestProject
 
 import pwem.protocols as emprot
-from pwem.protocols.protocol_create_stream_data import SET_OF_COORDINATES
+from pwem.protocols.protocol_create_stream_data import (
+    SET_OF_COORDINATES,
+    SET_OF_PARTICLES,
+)
 
 
 
@@ -125,6 +128,60 @@ class TestCreateStreamResumeSafety(unittest.TestCase):
             outputSet.STREAM_CLOSED
         )
         protocol._updateOutput.assert_called_once_with(outputSet)
+
+    def test_CreateParticlesStepRestoresCounterBeforeSelectingBatch(self):
+        protocol = emprot.ProtCreateStreamData(
+            setof=SET_OF_PARTICLES
+        )
+        protocol.counter = 0
+        protocol.nDims = 4
+        protocol.group = 2
+        protocol.getTimeInterval = MagicMock(return_value=0)
+        protocol._getExtraPath = MagicMock(
+            side_effect=lambda name: "/tmp/" + name
+        )
+
+        particles = [MagicMock() for _ in range(4)]
+        inputParticles = MagicMock()
+        inputParticles.__iter__.return_value = iter(particles)
+        protocol.inputParticles = MagicMock()
+        protocol.inputParticles.get.return_value = inputParticles
+
+        checkCalls = []
+
+        def restoreDurableState():
+            checkCalls.append(protocol.counter)
+            if len(checkCalls) == 1:
+                protocol.counter = 2
+
+        protocol._checkProcessedData = MagicMock(
+            side_effect=restoreDurableState
+        )
+
+        image = MagicMock()
+        imageHandler = MagicMock()
+        imageHandler.read.return_value = image
+
+        with patch(
+            "pwem.protocols.protocol_create_stream_data.emlib.image.ImageHandler",
+            return_value=imageHandler,
+        ):
+            protocol.createParticlesStep()
+
+        writtenPaths = [
+            call.args[0]
+            for call in image.write.call_args_list
+        ]
+
+        self.assertEqual(
+            [
+                "/tmp/particle_00002",
+                "/tmp/particle_00003",
+            ],
+            writtenPaths,
+            "Continue must restore the durable particle counter before "
+            "selecting the next batch.",
+        )
 
 
 class TestCreateStreamRandomMicrographs(BaseTest):
