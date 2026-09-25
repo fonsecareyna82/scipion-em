@@ -271,15 +271,27 @@ class ProtCreateStreamData(EMProtocol):
 
     def _checkProcessedData(self):
         if self.setof == SET_OF_MOVIES:
-            objSet = emobj.SetOfMovies(filename=self._getPath('movies.sqlite'))
-        elif self.setof == SET_OF_MICROGRAPHS:
-            objSet = emobj.SetOfMicrographs(filename=self._getPath('micrographs.sqlite'))
-        elif self.setof == SET_OF_RANDOM_MICROGRAPHS:
-            objSet = emobj.SetOfMicrographs(filename=self._getPath('micrographs.sqlite'))
+            outputName = 'outputMovies'
+        elif self.setof in (SET_OF_MICROGRAPHS, SET_OF_RANDOM_MICROGRAPHS):
+            outputName = 'outputMicrographs'
         elif self.setof == SET_OF_PARTICLES:
-            objSet = emobj.SetOfParticles(filename=self._getPath('particles.sqlite'))
+            outputName = 'outputParticles'
         else:
             raise Exception('Unknown data type')
+
+        # Reuse the logical output Scipion already knows about before
+        # falling back to the on-disk backing file, otherwise an output
+        # still awaiting its backing file to materialize would be silently
+        # discarded and replaced with an empty fresh Set.
+        objSet = getattr(self, outputName, None)
+        if objSet is not None:
+            objSet.enableAppend()
+        elif self.setof == SET_OF_MOVIES:
+            objSet = emobj.SetOfMovies(filename=self._getPath('movies.sqlite'))
+        elif self.setof in (SET_OF_MICROGRAPHS, SET_OF_RANDOM_MICROGRAPHS):
+            objSet = emobj.SetOfMicrographs(filename=self._getPath('micrographs.sqlite'))
+        else:
+            objSet = emobj.SetOfParticles(filename=self._getPath('particles.sqlite'))
 
         newObjSet, newObj = self._checkNewItems(objSet)
 

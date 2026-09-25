@@ -129,6 +129,36 @@ class TestCreateStreamResumeSafety(unittest.TestCase):
         )
         protocol._updateOutput.assert_called_once_with(outputSet)
 
+    def test_CheckProcessedDataReusesLogicalOutputWithoutBackingFile(self):
+        # Regression test: an output that Scipion already knows about
+        # (protocol.outputMicrographs) must be reused even when its backing
+        # file was never materialized on disk yet. Building a fresh Set from
+        # the backing file unconditionally would silently discard whatever
+        # was already appended to the real logical output.
+        protocol = emprot.ProtCreateStreamData(
+            setof=emprot.SET_OF_RANDOM_MICROGRAPHS
+        )
+        protocol.nDims = 2
+        protocol.nDim = MagicMock()
+        protocol.nDim.get.return_value = 2
+
+        existingOutputSet = MagicMock()
+        protocol.outputMicrographs = existingOutputSet
+
+        protocol._checkNewItems = MagicMock(
+            return_value=(existingOutputSet, False)
+        )
+        protocol._updateOutput = MagicMock()
+
+        with patch(
+            "pwem.protocols.protocol_create_stream_data.emobj.SetOfMicrographs",
+        ) as SetOfMicrographsCtor:
+            protocol._checkProcessedData()
+
+        SetOfMicrographsCtor.assert_not_called()
+        existingOutputSet.enableAppend.assert_called_once()
+        protocol._checkNewItems.assert_called_once_with(existingOutputSet)
+
     def test_CreateParticlesStepRestoresCounterBeforeSelectingBatch(self):
         protocol = emprot.ProtCreateStreamData(
             setof=SET_OF_PARTICLES
