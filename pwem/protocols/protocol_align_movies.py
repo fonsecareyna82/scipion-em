@@ -142,13 +142,22 @@ class ProtAlignMovies(ProtProcessMovies):
             self.warning(pwutils.yellowStr("WARNING - Failed to align %d movies."
                                            % (len(self.listOfMovies) - output.getSize())))
 
-    def _loadOutputSet(self, SetClass, baseName, fixSampling=True):
+    def _loadOutputSet(self, SetClass, baseName, fixSampling=True, outputName=None):
         """
         Load the output set if it exists or create a new one.
         fixSampling: correct the output sampling rate if binning was used,
         except for the case when the original movies are kept and shifts
         refers to that one.
         """
+        # Reuse the logical output Scipion already knows about before
+        # falling back to the on-disk backing file, otherwise an output
+        # still awaiting its backing file to materialize would be silently
+        # discarded and replaced with an empty fresh Set.
+        outputSet = getattr(self, outputName, None) if outputName else None
+        if outputSet is not None:
+            outputSet.enableAppend()
+            return outputSet
+
         setFile = self._getPath(baseName)
 
         if os.path.exists(setFile) and os.path.getsize(setFile) > 0:
@@ -171,7 +180,8 @@ class ProtAlignMovies(ProtProcessMovies):
     def _updateOutputMicSet(self, newDone, sqliteFn, getOutputMicName,
                             outputName, streamMode):
         """ Updated the output micrographs set with new items found. """
-        micSet = self._loadOutputSet(emobj.SetOfMicrographs, sqliteFn)
+        micSet = self._loadOutputSet(emobj.SetOfMicrographs, sqliteFn,
+                                     outputName=outputName)
         doneFailed = []
         persistedIds = micSet.getIdSet()
 
@@ -216,7 +226,8 @@ class ProtAlignMovies(ProtProcessMovies):
     def _updateOutputMovieSet(self, newDone, streamMode):
         saveMovie = self.getAttributeValue('doSaveMovie', False)
         movieSet = self._loadOutputSet(emobj.SetOfMovies, 'movies.sqlite',
-                                       fixSampling=saveMovie)
+                                       fixSampling=saveMovie,
+                                       outputName=OUT_MOVIES)
         persistedIds = movieSet.getIdSet()
 
         if saveMovie:

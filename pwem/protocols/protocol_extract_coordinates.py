@@ -303,17 +303,26 @@ class ProtExtractCoords(ProtParticlePickingAuto):
                 outputStep.setStatus(STATUS_NEW)
 
     def _loadOutputSet(self):
-        setFile = self._getPath("coordinates.sqlite")
-        if os.path.exists(setFile):
-            outputSet = emobj.SetOfCoordinates(filename=setFile)
-            outputSet.loadAllProperties()
+        # Reuse the logical output Scipion already knows about before
+        # falling back to the on-disk backing file, otherwise an output
+        # still awaiting its backing file to materialize would be silently
+        # discarded and replaced with an empty fresh Set, and its
+        # transform/source relations would be wrongly redefined again.
+        outputSet = getattr(self, 'outputCoordinates', None)
+        if outputSet is not None:
             outputSet.enableAppend()
         else:
-            outputSet = emobj.SetOfCoordinates(filename=setFile)
-            outputSet.setStreamState(outputSet.STREAM_OPEN)
-            self._store(outputSet)
-            self._defineTransformRelation(self.getInputParticles(), outputSet)
-            self._defineSourceRelation(self.getInputMicrographs(), outputSet)
+            setFile = self._getPath("coordinates.sqlite")
+            if os.path.exists(setFile):
+                outputSet = emobj.SetOfCoordinates(filename=setFile)
+                outputSet.loadAllProperties()
+                outputSet.enableAppend()
+            else:
+                outputSet = emobj.SetOfCoordinates(filename=setFile)
+                outputSet.setStreamState(outputSet.STREAM_OPEN)
+                self._store(outputSet)
+                self._defineTransformRelation(self.getInputParticles(), outputSet)
+                self._defineSourceRelation(self.getInputMicrographs(), outputSet)
 
         outputSet.setMicrographs(self.getInputMicrographsPointer())
 

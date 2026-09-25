@@ -1,10 +1,33 @@
 import unittest
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock, patch
 
-from pwem.protocols.protocol_align_movies import ProtAlignMovies
+from pwem.protocols.protocol_align_movies import ProtAlignMovies, OUT_MOVIES
 
 
 class TestAlignMoviesStreaming(unittest.TestCase):
+
+    def test_LoadOutputSetReusesLogicalOutputWithoutBackingFile(self):
+        # Regression test: an output that Scipion already knows about
+        # (protocol.outputMovies) must be reused even when its backing file
+        # was never materialized on disk yet. Falling through to "no backing
+        # file -> build a fresh, empty Set" would silently discard whatever
+        # was already appended to the real logical output.
+        protocol = ProtAlignMovies()
+        protocol._getPath = Mock(return_value="/tmp/movies.dat")
+
+        existingMovieSet = MagicMock()
+        setattr(protocol, OUT_MOVIES, existingMovieSet)
+
+        with patch(
+            "pwem.protocols.protocol_align_movies.os.path.exists",
+            return_value=False,
+        ):
+            outputSet = protocol._loadOutputSet(
+                MagicMock, "movies.dat", outputName=OUT_MOVIES
+            )
+
+        self.assertIs(existingMovieSet, outputSet)
+        existingMovieSet.enableAppend.assert_called_once()
 
     def test_OutputUpdatersSkipItemsAlreadyPersisted(self):
         protocol = ProtAlignMovies()
