@@ -226,6 +226,9 @@ class ProtProcessMovies(ProtPreprocessMicrographs):
         pass  # To be implemented in sub-classes
 
     def _stepsCheck(self):
+        if getattr(self, 'finished', False):
+            return
+
         # Input movie set can be loaded or None when checked for new inputs
         # If None, we load it
         self._checkNewInput()
