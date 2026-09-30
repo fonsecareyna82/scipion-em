@@ -470,7 +470,24 @@ class ProtParticlePickingAuto(ProtParticlePicking):
         self.info("Reading coordinates from mics: %s"
                   % ','.join([mic.strId() for mic in pendingMics]))
         if pendingMics:
-            self.readCoordsFromMics(outputDir, pendingMics, outputCoords)
+            try:
+                self.readCoordsFromMics(outputDir, pendingMics, outputCoords)
+            except Exception as e:
+                # readCoordsFromMics is a subclass hook; if it doesn't
+                # isolate failures per-micrograph internally, a single
+                # corrupted micrograph in the batch would otherwise
+                # crash the whole protocol (the polling loop that calls
+                # _checkNewOutput has no exception boundary of its own).
+                # These mic ids stay out of persistedMicIds, but the
+                # caller still checkpoints micDoneList right after this
+                # returns, so their coordinates are not retried - log
+                # clearly so this is visible rather than silently
+                # incomplete.
+                self.error(
+                    "Failed while reading coordinates for %d pending "
+                    "micrograph(s) (%s); their coordinates will be "
+                    "missing from the output." % (len(pendingMics), e)
+                )
 
         self.debug(" _updateOutputCoordSet Stream Mode: %s " % streamMode)
         outputCoords.setObjComment(self.getSummary(outputCoords))

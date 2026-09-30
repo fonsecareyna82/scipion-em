@@ -176,6 +176,14 @@ class ProtExtractCoords(ProtParticlePickingAuto):
     def extractCoordinates(self, partsIds=None):
         inPart = self.getInputParticles()
         inMics = self.getInputMicrographs()
+        # Always reload. PostgreSQL-backed streaming Sets may change
+        # without changing the compatibility SQLite file mtime, and these
+        # Pointer-resolved objects are otherwise never refreshed (see the
+        # matching comment in _checkNewInput). loadInputs() already
+        # re-opens fresh copies before scheduling a particle here, but
+        # without this refresh these objects could still be stale.
+        inPart.loadAllProperties()
+        inMics.loadAllProperties()
         scale = inPart.getSamplingRate() / inMics.getSamplingRate()
         print("Scaling coordinates by a factor *%0.2f*" % scale)
         alignType = inPart.getAlignment()
@@ -238,11 +246,36 @@ class ProtExtractCoords(ProtParticlePickingAuto):
         newCoord = emobj.Coordinate()
         if self.streamingModeOn:
             for partId in partsIds:
-                particle = inPart[partId]
-                appendCoordFromParticle(particle)
+                # Set.__getitem__(int) returns None (not a raise) for a
+                # missing row, but indexing straight into
+                # appendCoordFromParticle would still crash. A single
+                # corrupted/unresolvable particle must not abort the
+                # whole batch either.
+                if partId not in inPart:
+                    self.warning(
+                        "Particle with id %d is not yet visible in the "
+                        "input particles Set; skipping it." % partId
+                    )
+                    continue
+                try:
+                    particle = inPart[partId]
+                    appendCoordFromParticle(particle)
+                except Exception as e:
+                    self.error(
+                        "Particle with id %d failed while extracting "
+                        "its coordinate (%s); skipping it."
+                        % (partId, e)
+                    )
         else:
             for particle in inPart:
-                appendCoordFromParticle(particle)
+                try:
+                    appendCoordFromParticle(particle)
+                except Exception as e:
+                    self.error(
+                        "Particle with id %d failed while extracting "
+                        "its coordinate (%s); skipping it."
+                        % (particle.getObjId(), e)
+                    )
 
         boxSize = inPart.getXDim() * scale
         outputCoords.setBoxSize(boxSize)

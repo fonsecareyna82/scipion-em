@@ -326,7 +326,17 @@ class ProtCTFMicrographs(ProtMicrographs):
         efficient way to estimate many micrographs at once.
          Default implementation will just call the _estimateCTF. """
         for mic in micList:
-            self._estimateCTF(mic, *args)
+            try:
+                self._estimateCTF(mic, *args)
+            except Exception as e:
+                # A single corrupted/failing micrograph must not crash
+                # the whole batch step (and hence the whole protocol) -
+                # skip just this micrograph and keep the rest of the
+                # batch going.
+                self.error(
+                    "Micrograph %s failed during CTF estimation (%s); "
+                    "skipping it." % (mic.getMicName(), e)
+                )
 
     def _createCtfModel(self, mic, updateSampling=False):
         """ This should be implemented in subclasses

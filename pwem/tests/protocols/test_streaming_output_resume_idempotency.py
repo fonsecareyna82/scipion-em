@@ -55,6 +55,52 @@ class TestStreamingOutputResumeIdempotency(unittest.TestCase):
         self.assertEqual([mic2], copiedMics)
         outputParts.getUniqueValues.assert_called_once_with("_micId")
 
+    def test_ExtractParticlesLogsAndContinuesWhenReadPartsFromMicsFails(self):
+        # Regression test: readPartsFromMics is a subclass hook; if a
+        # single corrupted micrograph makes it raise, the whole protocol
+        # must not crash (the polling loop that calls _checkNewOutput
+        # has no exception boundary of its own) - the failure must be
+        # logged and the method must return normally.
+        protocol = ProtExtractParticles()
+        mic1 = _mic(1)
+        mic2 = _mic(2)
+
+        outputParts = MagicMock()
+        outputParts.getUniqueValues.return_value = [1]
+        protocol.outputParticles = outputParts
+
+        protocol.readPartsFromMics = Mock(
+            side_effect=ValueError("corrupted micrograph"))
+        protocol._updateOutputSet = Mock()
+        protocol.error = Mock()
+
+        protocol._updateOutputPartSet([mic1, mic2], 1)  # must not raise
+
+        protocol.error.assert_called_once()
+        protocol._updateOutputSet.assert_called_once()
+
+    def test_PickingLogsAndContinuesWhenReadCoordsFromMicsFails(self):
+        protocol = ProtParticlePickingAuto()
+        mic1 = _mic(1)
+        mic2 = _mic(2)
+
+        outputCoords = MagicMock()
+        outputCoords.getUniqueValues.return_value = [1]
+        protocol.outputCoordinates = outputCoords
+
+        protocol._micIsReady = Mock(return_value=True)
+        protocol.getCoordsDir = Mock(return_value="/tmp")
+        protocol.readCoordsFromMics = Mock(
+            side_effect=ValueError("corrupted micrograph"))
+        protocol.getSummary = Mock(return_value="")
+        protocol._updateOutputSet = Mock()
+        protocol.error = Mock()
+
+        updated = protocol._updateOutputCoordSet([mic1, mic2], 1)  # must not raise
+
+        protocol.error.assert_called_once()
+        self.assertEqual([mic1, mic2], updated)
+
     def test_CTFSkipsMicrographsAlreadyPersistedBeforeDoneCheckpoint(self):
         protocol = ProtCTFMicrographs()
         mic1 = _mic(1)

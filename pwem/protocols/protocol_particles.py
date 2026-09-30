@@ -580,7 +580,23 @@ class ProtExtractParticles(ProtParticles):
         ]
 
         if pendingMics:
-            self.readPartsFromMics(pendingMics, outputParts)
+            try:
+                self.readPartsFromMics(pendingMics, outputParts)
+            except Exception as e:
+                # readPartsFromMics is a subclass hook; if it doesn't
+                # isolate failures per-micrograph internally, a single
+                # corrupted micrograph in the batch would otherwise
+                # crash the whole protocol (the polling loop that calls
+                # _checkNewOutput has no exception boundary of its own).
+                # These mic ids stay out of persistedMicIds, but the
+                # caller still marks them done right after this returns,
+                # so their particles are not retried - log clearly so
+                # this is visible rather than silently incomplete.
+                self.error(
+                    "Failed while reading particles for %d pending "
+                    "micrograph(s) (%s); their particles will be "
+                    "missing from the output." % (len(pendingMics), e)
+                )
 
         self._updateOutputSet(outputName, outputParts, streamMode)
 
