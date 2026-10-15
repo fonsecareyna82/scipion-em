@@ -1237,6 +1237,12 @@ class EMSet(Set, EMObject):
             direction: Sorting direction, either 'ASC' for ascending or 'DESC' for descending. Default is 'ASC'.
         """
 
+        if (updateItemCallback is None and itemDataIterator is None
+                and itemSelectedCallback is None and rowFilter is None
+                and orderBy == 'id' and direction == 'ASC'
+                and self._copyAllItemsAtOnce(otherSet, copyDisabled, doClone)):
+            return
+
         if itemSelectedCallback is None:
             itemSelectedCallback = EMSet.isItemEnabled
 
@@ -1261,6 +1267,20 @@ class EMSet(Set, EMObject):
             else:
                 if itemDataIterator is not None:
                     next(itemDataIterator)  # just skip disabled data row
+
+    def _copyAllItemsAtOnce(self, otherSet, copyDisabled, doClone):
+        """ Let a storage able to do so copy all items of otherSet in one go,
+        as the plain loop of copyItems would append them. It only does it when
+        the result is identical; otherwise it writes nothing and returns False. """
+        appendAtOnce = getattr(self, "appendFromStoredSets", None)
+        if not callable(appendAtOnce) or not isinstance(otherSet, Set):
+            return False
+        if doClone:
+            # clone() keeps the label and comment but not the enabled flag.
+            return bool(appendAtOnce([otherSet], buildItem=lambda item: item.clone(),
+                                     enabledOnly=not copyDisabled,
+                                     copiedMetadata=("label", "comment")))
+        return bool(appendAtOnce([otherSet], enabledOnly=not copyDisabled))
 
     @classmethod
     def create(cls, outputPath,
@@ -1314,10 +1334,17 @@ class EMSet(Set, EMObject):
             itemSelectedCallback: Optional, callback receiving an item and returning
                 true if it has to be copied
         """
+        if not ext:
+            # A Set stored without a file of its own would be copied to one
+            # just to read its extension.
+            isStoredWithoutFile = getattr(self, "isPostgresqlRuntimeOutput", None)
+            ext = ("sqlite" if callable(isStoredWithoutFile) and isStoredWithoutFile()
+                   else pwutils.getExt(self.getFileName()))
+
         setObj = self.create(outputPath,
                              prefix=prefix,
                              suffix=suffix,
-                             ext=ext or pwutils.getExt(self.getFileName()))
+                             ext=ext)
 
         if copyInfo:
             setObj.copyInfo(self)
