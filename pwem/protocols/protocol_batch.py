@@ -25,6 +25,7 @@
 # **************************************************************************
 
 import os
+import re
 from json import dumps, loads
 
 from pyworkflow.protocol.params import (PointerParam, FileParam, StringParam)
@@ -63,6 +64,7 @@ class ProtUserSubSet(BatchProtocol):
         self._selectedIds = None
         self._dbName = None # To keep the path to the database to read
         self._selectionTxt = None # To keep the file (txt) that has the selection. Extracted from sqliteFile tuple.
+        self._storedInput = None # Input read directly instead of through a file copy (id selections only)
 
     def _defineParams(self, form):
         form.addSection("Input")
@@ -169,15 +171,14 @@ class ProtUserSubSet(BatchProtocol):
 
     def _createSimpleSubset(self, inputObj):
         className = inputObj.getClassName()
-        modifiedSet = inputObj.getClass()(filename=self._dbName,
-                                          prefix=self._dbPrefix)
+        modifiedSet = self._openSelectionSource(inputObj.getClass())
         try:
             createFunc = getattr(self, '_create' + className)
             output = createFunc()
         except Exception:
             output = inputObj.createCopy(self._getPath())
 
-        for item in modifiedSet.iterItems(rowFilter=self._getRowSelector()):
+        for item in self._iterSelected(modifiedSet):
             output.append(item)
 
         if hasattr(modifiedSet, 'copyInfo'):
@@ -239,7 +240,7 @@ class ProtUserSubSet(BatchProtocol):
         className = inputImages.getClassName()
         setClass = inputImages.getClass()
 
-        modifiedSet = setClass(filename=self._dbName, prefix=self._dbPrefix)
+        modifiedSet = self._openSelectionSource(setClass)
         try:
             createFunc = getattr(self, '_create' + className)
             output = createFunc()
@@ -252,7 +253,11 @@ class ProtUserSubSet(BatchProtocol):
         else:
             copyInfoCallback(output)
 
-        output.appendFromImages(modifiedSet, rowFilter=self._getRowSelector())
+        if self._storedInput is None:
+            output.appendFromImages(modifiedSet, rowFilter=self._getRowSelector())
+        elif not self._appendSelectedAtOnce(output, [modifiedSet], self._getSelectionTxtDict()):
+            output.appendFromImages(modifiedSet, itemSelectedCallback=lambda img: (
+                img.isEnabled() and self._itemInSelectionTxt(img)))
         # Register outputs
         self._defineOutput(className, output)
 
@@ -275,7 +280,7 @@ class ProtUserSubSet(BatchProtocol):
         if self._selectedIds is None:
             self._selectedIds = dict()
             ids = None
-            self.info("Reading selection from %s" % self._dbName)
+            self.info("Reading selection from %s" % self._selectionSourceName())
             # This file has a single line with id separated by spaces
             with open(self._selectionTxt, "r") as fh:
                 line = fh.readline().strip()
@@ -295,9 +300,14 @@ class ProtUserSubSet(BatchProtocol):
             # We need to distinguish two cases:
             # a) when we want to create images by grouping class images
             # b) create a subset from a particular class images
-            from pyworkflow.mapper.sqlite import SqliteFlatDb
-            db = SqliteFlatDb(dbName=self._dbName, tablePrefix=self._dbPrefix)
-            itemClassName = db.getSelfClassName()
+            if self._storedInput is None:
+                from pyworkflow.mapper.sqlite import SqliteFlatDb
+                db = SqliteFlatDb(dbName=self._dbName, tablePrefix=self._dbPrefix)
+                itemClassName = db.getSelfClassName()
+            else:
+                # The prefix names one class, whose items are images.
+                itemClassName = ("Image" if self._dbPrefix
+                                 else inputClasses.ITEM_TYPE.__name__)
 
             if itemClassName.startswith('Class'):
 
@@ -340,11 +350,10 @@ class ProtUserSubSet(BatchProtocol):
                             'this SetOfCTF, the micrographs were not set.')
         outputMics.copyInfo(setOfMics)
 
-        modifiedSet = emobj.SetOfCTF(filename=self._dbName,
-                                     prefix=self._dbPrefix)
+        modifiedSet = self._openSelectionSource(emobj.SetOfCTF)
 
         count = 0
-        for ctf in modifiedSet.iterItems(rowFilter=self._getRowSelector()):
+        for ctf in self._iterSelected(modifiedSet):
             mic = ctf.getMicrograph()
             outputMics.append(mic)
             outputCtfs.append(ctf)
@@ -377,9 +386,9 @@ class ProtUserSubSet(BatchProtocol):
         else:
             output = outputClassName.create(self.getPath())
 
-        modifiedSet = inputClasses.getClass()(filename=self._dbName, prefix=self._dbPrefix)
+        modifiedSet = self._openSelectionSource(inputClasses.getClass())
         self.info("Creating REPRESENTATIVES of images from classes, "
-                  "sqlite file: %s" % self._dbName)
+                  "sqlite file: %s" % self._selectionSourceName())
 
         count = 0
 
@@ -389,7 +398,7 @@ class ProtUserSubSet(BatchProtocol):
         # THis is because is getting the alignment info from the input images and this does not have to match.
         # This created an error when scaling averages #903
         output.setAlignment(ALIGN_NONE)
-        for cls in modifiedSet.iterItems(rowFilter=self._getRowSelector()):
+        for cls in self._iterSelected(modifiedSet):
             img = cls.getRepresentative()
             if not output.getSamplingRate():
                 output.setSamplingRate(cls.getSamplingRate()
@@ -438,10 +447,15 @@ class ProtUserSubSet(BatchProtocol):
         except Exception as e:
             output = inputImages.createCopy(self._getPath())
 
-        modifiedSet = inputClasses.getClass()(filename=self._dbName, prefix=self._dbPrefix)
-        self.info("Creating subset of images from classes, sqlite file: %s" % self._dbName)
+        modifiedSet = self._openSelectionSource(inputClasses.getClass())
+        self.info("Creating subset of images from classes, sqlite file: %s" % self._selectionSourceName())
         self._copyInfoAndSetAlignment(inputClasses, output)
-        output.appendFromClasses(modifiedSet, filterClassFunc=self._getItemSelector())
+        # Same classes appendFromClasses would take: selected and not empty.
+        selectedClasses = (None if self._storedInput is None else
+                           [cls for cls in modifiedSet.iterItems()
+                            if self._itemInSelectionTxt(cls) and cls.getSize() > 0])
+        if selectedClasses is None or not self._appendSelectedAtOnce(output, selectedClasses):
+            output.appendFromClasses(modifiedSet, filterClassFunc=self._getItemSelector())
         # Register outputs
         self._defineOutput(className, output)
         if inputClasses.hasObjId():
@@ -471,8 +485,8 @@ class ProtUserSubSet(BatchProtocol):
         except Exception as e:
             output = inputClasses.getClass().create(self._getPath())
 
-        modifiedSet = inputClasses.getClass()(filename=self._dbName, prefix=self._dbPrefix)
-        self.info("Creating subset of classes from classes, sqlite file: %s" % self._dbName)
+        modifiedSet = self._openSelectionSource(inputClasses.getClass())
+        self.info("Creating subset of classes from classes, sqlite file: %s" % self._selectionSourceName())
         output.copyInfo(inputClasses)
         output.appendFromClasses(modifiedSet,filterClassFunc=self._getItemSelector())
         # Register outputs
@@ -573,12 +587,18 @@ class ProtUserSubSet(BatchProtocol):
             self._dbName = self._getPath('subset.sqlite')
             os.rename(_dbName, self._dbName)
         else:
-            self._dbName = self.inputObject.get().getFileName()
             self._selectionTxt = _dbName
+            if self._readsInputDirectly():
+                self._storedInput = self.inputObject.get()
+            else:
+                self._dbName = self.inputObject.get().getFileName()
 
         # Prefix: used to create subsets from Particles from a class (specific table in a set of classes)
         if self._dbPrefix.endswith('_'):
             self._dbPrefix = self._dbPrefix[:-1]
+
+        if self._storedInput is not None:
+            return self._storedInput
 
         from pwem.utils import loadSetFromDb
 
@@ -586,6 +606,51 @@ class ProtUserSubSet(BatchProtocol):
         # the top-level set in the sqlite file
         setObj = loadSetFromDb(self._dbName)
         return setObj
+
+    def _readsInputDirectly(self):
+        """ Whether an id selection can be read from the input Set itself.
+
+        Inputs stored without a file of their own would otherwise be copied
+        to one just to read it back. Only the subset kinds below support it.
+        """
+        source = self.inputObject.get()
+        isStoredWithoutFile = getattr(source, "isPostgresqlRuntimeOutput", None)
+        return (callable(isStoredWithoutFile) and bool(isStoredWithoutFile())
+                and not self.other.get()
+                and not getattr(source, "USE_CREATE_COPY_FOR_SUBSET", False)
+                and isinstance(source, (emobj.SetOfImages, emobj.SetOfClasses, emobj.SetOfCTF)))
+
+    def _openSelectionSource(self, setClass):
+        """ Set holding the selected items: the selection file, or the input
+        itself (or its class named by the prefix, e.g. Class012). """
+        if self._storedInput is None:
+            return setClass(filename=self._dbName, prefix=self._dbPrefix)
+        if self._dbPrefix:
+            return self._storedInput[int(re.sub(r"\D", "", self._dbPrefix))]
+        return self._storedInput
+
+    def _iterSelected(self, modifiedSet):
+        """ Selected items of a Set opened by _openSelectionSource. """
+        if self._storedInput is None:
+            return modifiedSet.iterItems(rowFilter=self._getRowSelector())
+        return (item for item in modifiedSet if self._itemInSelectionTxt(item))
+
+    def _appendSelectedAtOnce(self, output, sources, selectedIds=None):
+        """ Let a storage able to do so copy the enabled (and, if given,
+        selected) items of sources in one go. It only does it when the result
+        is identical to appending them one by one; otherwise it writes
+        nothing and returns False. """
+        appendAtOnce = getattr(output, "appendFromStoredSets", None)
+        if not callable(appendAtOnce) or not sources:
+            return False
+        itemIds = None if selectedIds is None else sorted(selectedIds)
+        copied = bool(appendAtOnce(sources, itemIds=itemIds, enabledOnly=True))
+        if copied:
+            self.info("All %d selected items were copied at once." % output.getSize())
+        return copied
+
+    def _selectionSourceName(self):
+        return self._dbName or "the input set"
 
     def _summary(self):
         summary = []

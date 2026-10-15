@@ -222,7 +222,8 @@ class ProtUnionSet(ProtSets):
 
         idsList = {}
         setNum = 0
-        for itemSet in self.inputSets:
+        inputSets = [] if self._appendAllAtOnce(outputSet, cleanIds, commonAttrs, copyAttrs) else self.inputSets
+        for itemSet in inputSets:
             setNum += 1
             if str(itemSet.get().getClassName()) is not Volume.__name__:
                 for obj in itemSet.get():
@@ -268,6 +269,34 @@ class ProtUnionSet(ProtSets):
         coordSet = self.inputSets[0].get()
         micSet = coordSet.getMicrographs()
         return ProtSets._createSetOfCoordinates(self, micSet, suffix)
+
+    def _appendAllAtOnce(self, outputSet, cleanIds, commonAttrs, copyAttrs):
+        """ Let a storage able to do so copy all the items in one go.
+
+        The storage only does it when the result is identical to the loop in
+        createOutputStep (same items, ids and Set metadata); otherwise it
+        writes nothing and returns False, and the loop runs as usual.
+        """
+        appendFromStoredSets = getattr(outputSet, "appendFromStoredSets", None)
+        inputSets = [itemSet.get() for itemSet in self.inputSets]
+        if (not callable(appendFromStoredSets)
+                or any(str(s.getClassName()) == Volume.__name__ for s in inputSets)):
+            return False
+        itemType = inputSets[0].ITEM_TYPE
+
+        def buildItem(obj):
+            newObj = itemType()
+            newObj.copyAttributes(obj, *copyAttrs)
+            self.cleanExtraAttributes(newObj, commonAttrs)
+            return newObj
+
+        copied = appendFromStoredSets(inputSets, buildItem, commonAttrs,
+                                      renumberAll=bool(self.renumber.get()),
+                                      renumberAfterFirst=bool(cleanIds),
+                                      skipDuplicateIds=bool(self.ignoreDuplicates.get()))
+        if copied:
+            self.info("All %d items were copied at once." % outputSet.getSize())
+        return bool(copied)
 
     def cleanExtraAttributes(self, obj, verifyAttrs, prefix=""):
 
