@@ -42,6 +42,7 @@ import pwem.objects as emobj
 from pwem import emlib
 
 from pwem.protocols import ProtProcessMovies
+from pwem.utils import getStoredIds
 
 OUT_MICS = "outputMicrographs"
 OUT_MICS_DW = "outputMicrographsDoseWeighted"
@@ -183,7 +184,7 @@ class ProtAlignMovies(ProtProcessMovies):
         micSet = self._loadOutputSet(emobj.SetOfMicrographs, sqliteFn,
                                      outputName=outputName)
         doneFailed = []
-        persistedIds = micSet.getIdSet()
+        persistedIds = getStoredIds(micSet)
 
         for movie in newDone:
             movieId = movie.getObjId()
@@ -228,7 +229,7 @@ class ProtAlignMovies(ProtProcessMovies):
         movieSet = self._loadOutputSet(emobj.SetOfMovies, 'movies.sqlite',
                                        fixSampling=saveMovie,
                                        outputName=OUT_MOVIES)
-        persistedIds = movieSet.getIdSet()
+        persistedIds = getStoredIds(movieSet)
 
         if saveMovie:
             movieSet.setGain(None)

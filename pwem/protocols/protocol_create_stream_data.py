@@ -37,6 +37,7 @@ from pyworkflow.protocol.constants import STEPS_PARALLEL
 from pwem.protocols import EMProtocol
 import pwem.objects as emobj
 from pwem import emlib
+from pwem.utils import getStoredIds
 
 
 SET_OF_MOVIES = 0
@@ -380,7 +381,7 @@ class ProtCreateStreamData(EMProtocol):
             self.outputCoordinates.loadAllProperties()
             self.outputCoordinates.enableAppend()
 
-        persistedCoordIds = self.outputCoordinates.getIdSet()
+        persistedCoordIds = getStoredIds(self.outputCoordinates)
 
         for idx, mic in enumerate(micrographs):
             if idx == micIdx - 1:

@@ -40,6 +40,7 @@ import pyworkflow.utils as pwutils
 import pwem.objects as emobj
 
 from .protocol import EMProtocol
+from pwem.utils import getStoredIds
 
 
 class ProtMicrographs(EMProtocol):
@@ -580,7 +581,7 @@ class ProtCTFMicrographs(ProtMicrographs):
         if not getattr(self, '_doneListReconciled', False):
             outputCtf = getattr(self, ProtCTFMicOutputs.outputCTF.name, None)
             if outputCtf is not None:
-                missingDoneIds = outputCtf.getIdSet() - doneIds
+                missingDoneIds = getStoredIds(outputCtf) - doneIds
                 if missingDoneIds:
                     recoveredMics = [mic for mic in self.micDict.values() if mic.getObjId() in missingDoneIds]
                     self._writeDoneList(recoveredMics)
@@ -654,9 +655,9 @@ class ProtCTFMicrographs(ProtMicrographs):
         This can be used to load new micrographs for estimation as well as
         new CTF (if used) in streaming.
         """
-        setFn = inputSet.getFileName()
-        self.debug("Loading input db: %s" % setFn)
-        updatedSet = SetClass(filename=setFn)
+        # The input Set itself, with its properties read again: opening it
+        # again by its file name makes some storages write a whole copy.
+        updatedSet = inputSet
         updatedSet.loadAllProperties()
         newItemDict = OrderedDict()
         for item in updatedSet:
@@ -664,8 +665,6 @@ class ProtCTFMicrographs(ProtMicrographs):
             if micKey not in self.micDict:
                 newItemDict[micKey] = item.clone()
         streamClosed = updatedSet.isStreamClosed()
-        updatedSet.close()
-        self.debug("Closed db.")
 
         return newItemDict, streamClosed
 
@@ -690,7 +689,7 @@ class ProtCTFMicrographs(ProtMicrographs):
             persistedMicIds = set()
         else:
             outputCtf.enableAppend()
-            persistedMicIds = outputCtf.getIdSet()
+            persistedMicIds = getStoredIds(outputCtf)
 
         for micFn, mic in self._iterMicrographs(micList):
             if mic.getObjId() in persistedMicIds:

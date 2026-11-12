@@ -352,9 +352,9 @@ class ProtExtractParticles(ProtParticles):
         """
 
         def _loadSet(inputSet, SetClass, getKeyFunc):
-            setFn = inputSet.getFileName()
-            self.debug("Loading input db: %s" % setFn)
-            updatedSet = SetClass(filename=setFn)
+            # The input Set itself, with its properties read again: opening
+            # it again by its file name makes some storages write a copy.
+            updatedSet = inputSet
             updatedSet.loadAllProperties()
             newItemDict = OrderedDict()
             for item in updatedSet:
@@ -362,8 +362,6 @@ class ProtExtractParticles(ProtParticles):
                 if micKey not in self.micDict:
                     newItemDict[micKey] = item.clone()
             streamClosed = updatedSet.isStreamClosed()
-            updatedSet.close()
-            self.debug("Closed db.")
             return newItemDict, streamClosed
 
         def _loadMics(micSet):

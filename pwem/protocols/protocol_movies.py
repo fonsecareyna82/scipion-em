@@ -198,14 +198,12 @@ class ProtProcessMovies(ProtPreprocessMicrographs):
 
     def _loadInputList(self):
         """ Load the input set of movies and create a list. """
-        moviesFile = self.inputMovies.get().getFileName()
-        self.debug("Loading input db: %s" % moviesFile)
-        movieSet = emobj.SetOfMovies(filename=moviesFile)
+        # The input Set itself, with its properties read again: opening it
+        # again by its file name makes some storages write a whole copy.
+        movieSet = self.inputMovies.get()
         movieSet.loadAllProperties()
         self.listOfMovies = [m.clone() for m in movieSet]
         self.streamClosed = movieSet.isStreamClosed()
-        movieSet.close()
-        self.debug("Closed db.")
 
     def _checkNewInput(self):
         # Always reload the logical Set. A PostgreSQL-backed streaming Set

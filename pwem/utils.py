@@ -41,6 +41,18 @@ def loadSetFromDb(dbName, dbPrefix=''):
     return setObj
 
 
+def getStoredIds(outputSet):
+    """ Ids of the items already stored in an output Set. A new Set with
+    nothing stored yet may have no storage to ask (classic Scipion creates
+    its table with the first item): it has none. """
+    try:
+        return set(outputSet.getIdSet())
+    except Exception:
+        if outputSet.getSize():
+            raise
+        return set()
+
+
 def runProgram(program, params):
     """ Runs an em program setting its environment matching a prefix"""
     env = None

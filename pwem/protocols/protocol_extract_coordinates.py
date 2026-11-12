@@ -38,6 +38,7 @@ from pyworkflow.object import Float
 from pwem.protocols import ProtParticlePickingAuto
 import pwem.constants as emcts
 import pwem.objects as emobj
+from pwem.utils import getStoredIds
 
 
 class ProtExtractCoords(ProtParticlePickingAuto):
@@ -300,7 +301,7 @@ class ProtExtractCoords(ProtParticlePickingAuto):
             filesToClean = []
 
             if newData:
-                outputIds = outSet.getIdSet()
+                outputIds = getStoredIds(outSet)
 
                 def _isNewCoordinate(item):
                     itemId = item.getObjId()
