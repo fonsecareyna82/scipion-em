@@ -34,5 +34,11 @@ def _skippingGetDataSet(cls, name):
 DataSet.getDataSet = classmethod(_skippingGetDataSet)
 
 
+# The home pyproject.toml gives the tests (through pytest-env). Without that
+# plugin SCIPION_HOME may be any folder, even this repository: never remove it.
+_TEST_HOME = os.path.realpath(os.path.expanduser("~/.cache/scipion_pwem_test_home"))
+
+
 def pytest_sessionfinish(session, exitstatus):
-    shutil.rmtree(pw.Config.SCIPION_HOME, ignore_errors=True)
+    if os.path.realpath(pw.Config.SCIPION_HOME) == _TEST_HOME:
+        shutil.rmtree(_TEST_HOME, ignore_errors=True)

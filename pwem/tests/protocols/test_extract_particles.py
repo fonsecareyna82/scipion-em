@@ -187,16 +187,19 @@ class TestExtractParticles(unittest.TestCase):
                 micDict = self.loadInputListRunner(setOfMicPatcher,
                                                    getSoMMock(mics[0], mics[1]),
                                                    othersMics=micOthers,
-                                                   ctfsPatcher=setOfCtfPatcher)
+                                                   ctfsPatcher=setOfCtfPatcher,
+                                                   ctfSet=ctfs or None)
 
                 self.assertEqual(expectedMicSize, len(micDict), msg)
 
-    def loadInputListRunner(self, setOfMicPatcher, coordSoMics, othersMics=None, ctfsPatcher=None, processedMics={}):
+    def loadInputListRunner(self, setOfMicPatcher, coordSoMics, othersMics=None, ctfsPatcher=None, processedMics={},
+                            ctfSet=None):
         """ :parameter setOfMicPatcher: Mocker object that patches SetOfMicrographs instantiation
             :parameter coordSoMics: SoM mock for the mics coming from the set of coordinates
             :parameter othersMics: Optional, SoM for testing extraction on other micrographs
             :parameter ctfsPatcher: Optional SetOfCTFs patcher to test extraction with ctf
             :parameter processedMics: already processed micDictionary
+            :parameter ctfSet: Optional SetOfCTFs mock the CTF input gives
             """
 
         # Make SoM return items
@@ -234,8 +237,9 @@ class TestExtractParticles(unittest.TestCase):
                 extractParticles._useCTF = Mock
 
                 # Mock the pointer
+                # The CTFs are read from the input itself
                 ctfRelations = MagicMock()
-                ctfRelations.get.return_value = MagicMock()
+                ctfRelations.get.return_value = ctfSet if ctfSet is not None else MagicMock()
                 extractParticles.ctfRelations = ctfRelations
 
             # Mock : self.inputCoordinates.get().getMicrographs()
